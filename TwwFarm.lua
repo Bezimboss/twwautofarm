@@ -1,11 +1,17 @@
---What are you doing here? Pervert
---Script made by z1xl :P
---Discord: @pesadelodosistema171
+--Slop made by z1xl
+--Discord: pesadelodosistema171
+--Sorry for the portuguese Nigga
 local WORKINK_LINK = "https://work.ink/36tw/tww-autominer-z1xl"
 local EXPECTED_LINK_ID = "5057607"
 local VERIFY_BASE = "https://work.ink/_api/v2/token/isValid/"
+
 local function startOriginal()
+-- The Wild West: minerador automatico. Abra no Real e execute.
+-- Selecione um deposito no menu. F8 para parar.
+-- Codigo local; sem loadstring/HttpGet ou bibliotecas externas.
+
 local English = (function()
+-- Presentation-only translation; internal action and error identifiers stay intact.
 local English={}
 local messages={
     ["Pronto"]="Ready",
@@ -223,7 +229,6 @@ local messages={
     ["Nenhuma passagem com piso contínuo foi encontrada até o destino"]="No passage with continuous ground was found to the destination",
     ["Cancelado"]="Cancelled",
 }
-      --Brazilian portuguese to english 8====D      
 local replacements={}
 for original,translated in pairs(messages)do
     replacements[#replacements+1]={pattern=original:gsub("([%%%^%$%(%)%.%[%]%*%+%-%?])","%%%1"),text=translated,length=#original}
@@ -244,11 +249,16 @@ return English
 
 end)()
 local Reports = (function()
+-- Only a click on SEND REPORT sends the user's message and listed diagnostics.
 local Reports = {}
 Reports.__index = Reports
 Reports.COOLDOWN_SECONDS = 12 * 60 * 60
+
+-- A webhook in a distributed client script is visible to its recipients.
+-- A public report API can be used instead to keep the webhook on a server.
 Reports.CONTACT_URL = ""
 Reports.ENDPOINT = "https://discord.com/api/webhooks/1563722040911986768/Cq6ce8QXHEKlN4fjA9sXvM55S_0EWyxfOtGT3RVlhUJiXo6sbljUODb8nuCTsNrqXhe9"
+
 function Reports.create(diagnostics)
     local player=game:GetService("Players").LocalPlayer
     local userId=player and player.UserId or 0
@@ -268,9 +278,11 @@ function Reports.create(diagnostics)
     end
     return self
 end
+
 function Reports:Remaining()
     return math.max(0,math.ceil(math.max(self.cooldownUntil,self.cooldowns[self.userId]or 0)-os.time()))
 end
+
 function Reports:_RecordSuccess()
     local now=os.time()
     self.cooldownUntil=now+Reports.COOLDOWN_SECONDS
@@ -282,6 +294,7 @@ function Reports:_RecordSuccess()
         end)
     end
 end
+
 function Reports:Build(description)
     description=tostring(description or ""):match("^%s*(.-)%s*$")
     if #description<10 then return nil,"Describe the problem in at least 10 characters." end
@@ -294,6 +307,7 @@ function Reports:Build(description)
     if not encoded then return nil,"Could not prepare the report." end
     return {data=report,json=json}
 end
+
 local function clip(value,limit)
     local text=tostring(value or "Unavailable")
     if #text<=limit then return text end
@@ -301,6 +315,7 @@ local function clip(value,limit)
     while finish>0 and string.byte(text,finish+1)>=128 and string.byte(text,finish+1)<192 do finish=finish-1 end
     return string.sub(text,1,finish).."..."
 end
+
 function Reports:_Delivery(report)
     local url=Reports.ENDPOINT
     local discord=url:match("^https://discord%.com/api/webhooks/%d+/")
@@ -322,6 +337,7 @@ function Reports:_Delivery(report)
     url=count>0 and replaced or url..(url:find("?",1,true) and "&" or "?").."wait=true"
     return url,self.HttpService:JSONEncode(payload),true
 end
+
 function Reports:Send(description)
     if self.sending then return false,"A report is already being sent." end
     local remaining=self:Remaining()
@@ -358,10 +374,14 @@ function Reports:Contact()
     if type(copy)~="function" or not pcall(copy,Reports.CONTACT_URL) then return false,"Could not copy the contact link." end
     return true,"Contact link copied. Open it in your browser and paste your report."
 end
+
 return Reports
+
 end)()
 local UI = (function()
+-- Interface local. Nenhuma chamada de mineração, venda ou rede é feita aqui.
 local UI = {}
+
 function UI.create(options)
     options = options or {}
     local oreLabels=options.oreLabels or{}
@@ -395,6 +415,7 @@ function UI.create(options)
     local initialSpeed = tonumber(options.flightSpeed) or 18
     if initialSpeed ~= initialSpeed or math.abs(initialSpeed) == math.huge then initialSpeed = 18 end
     local flightSpeed = math.clamp(math.floor(initialSpeed + 0.5), 1, 80)
+
     local colors = {
         background = Color3.fromRGB(14, 14, 14),
         panel = Color3.fromRGB(19, 19, 19),
@@ -406,6 +427,7 @@ function UI.create(options)
         accent = Color3.fromRGB(222, 55, 67),
         stop = Color3.fromRGB(152, 35, 44),
     }
+
     local function create(className, properties, parent)
         local instance = Instance.new(className)
         for key, value in pairs(properties) do
@@ -414,14 +436,17 @@ function UI.create(options)
         instance.Parent = parent
         return instance
     end
+
     local function outline(instance, color)
         create("UIStroke", {Color=color or colors.line,Thickness=1},instance)
     end
+
     local function connect(signal, callback, list)
         local connection = signal:Connect(callback)
         table.insert(list or connections, connection)
         return connection
     end
+
     local function disconnectAll(list)
         for _, connection in ipairs(list) do
             connection:Disconnect()
@@ -430,12 +455,14 @@ function UI.create(options)
             list[index] = nil
         end
     end
+
     local screen = create("ScreenGui", {
         Name = "WildWestMinerGui",
         ResetOnSpawn = false,
         ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
         DisplayOrder = 30,
     }, playerGui)
+
     local window = create("Frame", {
         Name = "Window",
         AnchorPoint = Vector2.new(0.5, 0.5),
@@ -458,12 +485,14 @@ function UI.create(options)
             Size=UDim2.new(1,-28,0,area.height),BackgroundColor3=colors.panel,BorderSizePixel=0},mainPage)
         outline(panel)
     end
+
     local dragHandle = create("Frame", {
         Name = "DragHandle",
         Size = UDim2.new(1, -48, 0, 40),
         BackgroundTransparency = 1,
         Active = true,
     }, window)
+
     local function label(name, text, position, size, textSize, color, parent)
         return create("TextLabel", {
             Name = name,
@@ -478,8 +507,10 @@ function UI.create(options)
             BorderSizePixel = 0,
         }, parent or mainPage)
     end
+
     label("Title", "Tww autominer", UDim2.new(0, 20, 0, 18),
         UDim2.new(1, -24, 0, 22), 16, colors.text, dragHandle)
+
     local closeButton = create("TextButton", {
         Name = "Close",
         Text = "x",
@@ -491,6 +522,7 @@ function UI.create(options)
         BackgroundTransparency = 1,
         BorderSizePixel = 0,
     }, window)
+
     local function tabButton(name,text,x)
         local button=create("TextButton",{Name=name,Text=text,Position=UDim2.new(0,x,0,43),
             Size=UDim2.new(0,220,0,20),Font=Enum.Font.Code,TextSize=11,
@@ -549,6 +581,7 @@ function UI.create(options)
         UDim2.new(0, 26, 0, 102), UDim2.new(1, -52, 0, 32), 12)
     status.TextWrapped = true
     status.TextYAlignment = Enum.TextYAlignment.Top
+
     local oreHeading = label("OreHeading", "ORE SELECTION [0/"..maxSelectedOres.."]", UDim2.new(0, 22, 0, 154),
         UDim2.new(0, 300, 0, 17), 12, colors.muted)
     local refreshButton = create("TextButton", {
@@ -564,6 +597,7 @@ function UI.create(options)
         AutoButtonColor = true,
     }, mainPage)
     outline(refreshButton)
+
     local list = create("ScrollingFrame", {
         Name = "Ores",
         Position = UDim2.new(0, 14, 0, 179),
@@ -588,6 +622,7 @@ function UI.create(options)
         UDim2.new(), UDim2.new(1, 0, 0, 100), 12, colors.muted, list)
     emptyLabel.TextWrapped = true
     emptyLabel.TextXAlignment = Enum.TextXAlignment.Center
+
     label("SelectionHint","Limestone uses both selection slots.",UDim2.new(0,22,0,291),UDim2.new(1,-44,0,14),10,colors.muted)
     label("FlightSpeedHeading", "FLIGHT SPEED", UDim2.new(0, 26, 0, 322),
         UDim2.new(1, -36, 0, 17), 11, colors.muted)
@@ -622,6 +657,7 @@ function UI.create(options)
     outline(speedInput)
     label("FlightSpeedHint", "1-80 studs/s | adjustable while moving", UDim2.new(0, 26, 0, 372),
         UDim2.new(1, -52, 0, 12), 10, colors.muted)
+
     local toggleButton = create("TextButton", {
         Name = "Toggle",
         Text = "START",
@@ -640,6 +676,7 @@ function UI.create(options)
     local betaBadge=label("BetaBadge", "BETA", UDim2.new(0, 240, 0, 460),
         UDim2.new(1, -260, 0, 12), 10, colors.accent,window)
     betaBadge.TextXAlignment=Enum.TextXAlignment.Right
+
     local instance = {}
     local reportBusy=false
     local reportRemaining=0
@@ -692,6 +729,7 @@ function UI.create(options)
     task.spawn(function()
         while not destroyed do updateReportCooldown();task.wait(1)end
     end)
+
     local function invoke(callback, ...)
         if type(callback) ~= "function" then
             return
@@ -702,6 +740,7 @@ function UI.create(options)
             warn("[Wild West Miner UI] " .. tostring(err))
         end
     end
+
     local function redrawSelection()
         local selectedNames = {}
         for _, name in ipairs(selected) do selectedNames[name] = true end
@@ -719,6 +758,7 @@ function UI.create(options)
             or (#selected > 0 and colors.accent or colors.line)
         toggleButton.TextColor3 = (running or #selected > 0) and colors.text or colors.muted
     end
+
     local function sameSelection(first, second)
         if #first ~= #second then return false end
         for index, name in ipairs(first) do
@@ -726,6 +766,7 @@ function UI.create(options)
         end
         return true
     end
+
     function instance:SetSelectedOres(ores)
         if destroyed then return end
         local names, seen, slots = {}, {}, 0
@@ -741,6 +782,7 @@ function UI.create(options)
         selectionFeedbackGeneration = selectionFeedbackGeneration + 1
         redrawSelection()
     end
+
     function instance:SetOres(ores)
         if destroyed then return end
         local previous = selected
@@ -812,22 +854,26 @@ function UI.create(options)
             invoke(options.onSelect, table.clone(selected))
         end
     end
+
     function instance:SetRunning(enabled)
         if destroyed then return end
         running = enabled == true
         toggleButton.Text = running and "STOP" or "START"
         redrawSelection()
     end
+
     function instance:SetStatus(text)
         if not destroyed then
             status.Text = "Status: " .. translate(tostring(text or ""))
         end
     end
+
     function instance:SetInventory(text)
         if not destroyed then
             inventory.Text = "Inventory: " .. translate(tostring(text or ""))
         end
     end
+
     function instance:SetFlightSpeed(value)
         if destroyed then return end
         local number = tonumber(value)
@@ -838,6 +884,7 @@ function UI.create(options)
         sliderFill.Size = UDim2.new(ratio, 0, 1, 0)
         sliderKnob.Position = UDim2.new(ratio, -7, 0.5, -7)
     end
+
     local function changeFlightSpeed(value)
         local number = tonumber(value)
         if not number or number ~= number or math.abs(number) == math.huge then
@@ -849,12 +896,14 @@ function UI.create(options)
         instance:SetFlightSpeed(number)
         if changed then invoke(options.onFlightSpeed, number) end
     end
+
     local function updateSlider(position)
         local width = speedSlider.AbsoluteSize.X
         if width <= 0 then return end
         local ratio = math.clamp((position.X - speedSlider.AbsolutePosition.X) / width, 0, 1)
         changeFlightSpeed(1 + ratio * 79)
     end
+
     function instance:Destroy()
         if destroyed then return end
         destroyed = true
@@ -868,6 +917,7 @@ function UI.create(options)
         rows = {}
         screen:Destroy()
     end
+
     connect(toggleButton.Activated, function()
         if destroyed or (not running and #selected == 0) then return end
         instance:SetRunning(not running)
@@ -885,6 +935,8 @@ function UI.create(options)
             updateSlider(input.Position)
         end
     end
+    -- GuiObject input does not bubble consistently through the decorative
+    -- children. Each visible hit surface starts the same guarded gesture.
     for _, surface in ipairs({speedSlider, sliderTrack, sliderFill, sliderKnob}) do
         connect(surface.InputBegan, beginSliderDrag)
     end
@@ -931,19 +983,27 @@ function UI.create(options)
         sliderDragging = false
         sliderInput = nil
     end)
+
     instance:SetOres(options.ores or {})
     instance:SetFlightSpeed(flightSpeed)
     instance:SetRunning(false)
     return instance
 end
+
 return UI
+
 end)()
 local Mining = (function()
+-- Adaptador das classes observadas na sessão de The Wild West.
+-- Usa EquipItem, Swing e OnMeleeHit; não altera cooldowns nem cria remotes.
 local Mining = {}
 Mining.__index = Mining
+-- Area confirmada neste mapa. Serve apenas para solicitar os objetos da
+-- pedreira quando seus modelos ainda nao foram replicados para o cliente.
 local VERIFIED_SEARCH_AREAS = {
     {name="Desert Quarry",position=Vector3.new(-225.33,-98.9,1711.13)},
 }
+
 function Mining.create(Global)
     assert(type(Global) == "table", "Global do jogo indisponível")
     return setmetatable({
@@ -956,10 +1016,12 @@ function Mining.create(Global)
         stopGuards = setmetatable({}, { __mode = "k" }),
     }, Mining)
 end
+
 function Mining:IsPickaxe(itemData)
     local info = itemData and self.Global.SharedData.PlayerItems[itemData.Type]
     return info and info.Type == "Pickaxe" or false
 end
+
 function Mining:FindPickaxe()
     local character = self.Global.PlayerCharacter
     local current = character and character:GetEquippedItemData()
@@ -984,9 +1046,11 @@ function Mining:FindPickaxe()
     end)
     return choices[1]
 end
+
 function Mining:_Cancelled(generation, cancelled)
     return self.generation ~= generation or (cancelled and cancelled()) or false
 end
+
 function Mining:_PickaxeLoadoutSlot(data)
     local loadout = self.Global.PlayerData:GetLoadout()
     local utility = loadout and loadout.Utility
@@ -1009,6 +1073,10 @@ function Mining:_PickaxeLoadoutSlot(data)
     end
     return empty or inferior or last
 end
+
+-- O loadout aceita tabelas de item e aplica uma alteração local enquanto a
+-- chamada normal ModifyLoadout é confirmada. A troca pode ficar bloqueada por
+-- alguns frames; aguarda essa confirmação sem forçar equip nem interromper Swing.
 function Mining:EquipPickaxe(timeout, cancelled)
     local duration = tonumber(timeout) or 8
     if duration ~= duration or duration == math.huge or duration == -math.huge then duration = 8 end
@@ -1041,6 +1109,8 @@ function Mining:EquipPickaxe(timeout, cancelled)
                 lastId, loadoutAttempts, lastRequest, lastLoadoutRequest = best.Id, 0, -math.huge, -math.huge
             end
             local current, equipped = character:GetEquippedItemData(), character:GetEquippedItem()
+            -- CanSwitchToItem também testa controle do personagem. Isso não
+            -- invalida a picareta que já está equipada durante voo ou queda.
             if current and current.Id == best.Id and not character.IsSwitchingItems
                 and equipped and equipped.IsEquipped and equipped.Hitbox then
                 return equipped, best
@@ -1055,6 +1125,7 @@ function Mining:EquipPickaxe(timeout, cancelled)
                     local slot = self:_PickaxeLoadoutSlot(best)
                     if not slot then return nil, "Nenhum espaço Utility disponível no equipamento rápido" end
                     if loadoutAttempts < 2 and os.clock() - lastLoadoutRequest >= 0.75 then
+                        -- Revalida a posse imediatamente antes da alteração.
                         local latest = self:FindPickaxe()
                         if latest and latest.Id == best.Id then
                             self.Global.PlayerData:SetLoadout("Utility", slot, best)
@@ -1082,6 +1153,7 @@ function Mining:EquipPickaxe(timeout, cancelled)
     if not ok then return nil, "Falha ao equipar a picareta: " .. tostring(item) end
     return item, data
 end
+
 function Mining:GetDepositState(deposit)
     if not deposit or not deposit.Parent or not deposit:IsA("Model") then
         return nil
@@ -1110,10 +1182,13 @@ function Mining:GetDepositState(deposit)
         maxHealth = maxHealth and maxHealth.Value,
     }
 end
+
 function Mining:GetDeposits(oreName)
     local deposits = {}
     local seen = {}
     for tag, info in pairs(self.Global.SharedData.OreDepositInfo) do
+        -- Sem filtro, enumera todos os tipos registrados pelo próprio jogo.
+        -- Não limita a busca à mina ou ao raio do personagem.
         if oreName == nil or tag == oreName or info.OreName == oreName then
             for _, deposit in ipairs(self.CollectionService:GetTagged(tag)) do
                 if not seen[deposit] and deposit:IsDescendantOf(self.Workspace)
@@ -1137,6 +1212,10 @@ function Mining:GetDeposits(oreName)
     end
     return deposits
 end
+
+-- Fotografia dos depósitos que o servidor já replicou para este cliente.
+-- Lê tags e DepositInfo novamente a cada consulta para refletir esgotamento,
+-- respawn e streaming, sem conservar modelos antigos como destinos válidos.
 function Mining:GetDepositMap(oreName)
     local map = {}
     local character = self.Global.PlayerCharacter
@@ -1158,7 +1237,10 @@ function Mining:GetDepositMap(oreName)
     end
     return map
 end
+
 function Mining:GetSearchAreas()
+    -- Combina as zonas compartilhadas com o ponto verificado da pedreira,
+    -- que nao aparece nas caixas de bioma/caverna desta versao do mapa.
     local shared = self.Global.SharedFolder
     local areas, seen = {}, {}
     local function add(name, getPosition)
@@ -1189,6 +1271,8 @@ function Mining:GetSearchAreas()
             end)
         end
     end
+    -- O jogo pode remover os modelos de zonas depois da inicializacao.
+    -- SharedUtils conserva suas caixas para consultas de bioma/caverna.
     local utils = self.Global.SharedUtils or {}
     for _, mapName in ipairs({"BiomeZones", "CaveZones", "LandmarkZones"}) do
         local map = utils[mapName]
@@ -1200,6 +1284,9 @@ function Mining:GetSearchAreas()
     end
     return areas
 end
+
+-- Apenas peças que realmente sobrepõem a hitbox animada podem receber o golpe.
+-- A classe PickaxeItemType exige que a peça seja filha direta do depósito.
 function Mining:_OverlappingOrePart(item, deposit)
     if not item.Hitbox or not item.Hitbox.Parent then return nil end
     local filter = OverlapParams.new()
@@ -1213,6 +1300,9 @@ function Mining:_OverlappingOrePart(item, deposit)
     end
     return nil
 end
+
+-- Retorno true significa que o fluxo local registrou contato; a resposta do
+-- servidor deve ser confirmada pelo inventário/DepositInfo no controlador.
 function Mining:_RestoreFacing(guard)
     if not guard or guard.closed then return end
     guard.closed = true
@@ -1240,9 +1330,12 @@ function Mining:_RestoreFacing(guard)
         pcall(function()
             guard.gameCamera.CameraCFrame = guard.gameCameraFrame
         end)
+        -- Também libera o controlador após morte/respawn, para não deixar a
+        -- próxima câmera presa ao minério do personagem anterior.
         pcall(function() guard.gameCamera:Enable() end)
     end
 end
+
 function Mining:_PointAtDeposit(guard)
     if guard.closed then return false, "Mira interrompida" end
     local character, root, human = self.Global.PlayerCharacter, guard.root, guard.human
@@ -1257,6 +1350,8 @@ function Mining:_PointAtDeposit(guard)
     end
     local center = guard.target.Position
     local horizontal = Vector3.new(center.X - root.Position.X, 0, center.Z - root.Position.Z)
+    -- A rotação é reaplicada na preparação e durante toda a animação; o motor
+    -- do Humanoid e o movimento do mouse não podem desfazer a direção do golpe.
     character:FaceMouse(false)
     human.AutoRotate = false
     human:Move(Vector3.zero, false)
@@ -1278,6 +1373,7 @@ function Mining:_PointAtDeposit(guard)
     guard.aimPosition = center
     return true
 end
+
 function Mining:MineOnce(deposit, cancelled)
     if self.faceGuard then return false, "Outro golpe ainda está em andamento" end
     local character = self.Global.PlayerCharacter
@@ -1330,6 +1426,7 @@ function Mining:MineOnce(deposit, cancelled)
         guard.connection = self.RunService.PreSimulation:Connect(point)
         guard.renderName = "TWWMinerAim_" .. tostring(guard)
         self.RunService:BindToRenderStep(guard.renderName, Enum.RenderPriority.Last.Value + 1, point)
+        -- Deixa o rig ler a nova direção antes de iniciar um Swing já preparado.
         self.RunService.Heartbeat:Wait()
         return self:_MineOnce(deposit, isCancelled)
     end)
@@ -1432,12 +1529,16 @@ function Mining:_MineOnce(deposit, cancelled)
     if contactResult ~= nil then return contactResult, contactMessage end
     return false, started and "A picareta não tocou o depósito" or "Golpe não iniciado"
 end
+
 function Mining:Stop()
     self.generation = self.generation + 1
     self:_RestoreFacing(self.faceGuard)
     local item = self.activeItem
     self.activeItem = nil
     if not item then return end
+
+    -- StopTrack retoma a corrotina de ReadySwing. Bloqueia a entrada real de
+    -- MeleeItemType:Swing antes de liberá-la, sem alterar NextCanSwing.
     local earlierGuard = self.stopGuards[item]
     local previous = item.DisableSwinging
     if earlierGuard then previous = earlierGuard.previous end
@@ -1456,9 +1557,12 @@ function Mining:Stop()
         end
     end)
 end
+
 return Mining
+
 end)()
 local Flight = (function()
+-- Voo baixo: segue o piso, conserva colisoes e recalcula apos correcoes externas.
 local Flight = {}
 Flight.__index = Flight
 local MAX_CAST_DISTANCE = 512
@@ -1469,10 +1573,12 @@ local function isRagdolled(pc)
     local ok, value = pcall(pc.IsRagdolled, pc)
     return ok and value == true
 end
+
 function Flight.create(Global, options)
     return setmetatable({Global = Global, options = options or {}, generation = 0,
         RunService = game:GetService("RunService"), active = nil, trace = {}}, Flight)
 end
+
 function Flight:_Release(resource)
     if not resource or resource.closed then return end
     resource.closed = true
@@ -1486,6 +1592,8 @@ function Flight:_Release(resource)
     end
     for _, object in ipairs(resource.objects) do pcall(function() object:Destroy() end) end
     if human and human.Parent and not isRagdolled(resource.pc) then
+        -- Restaurar apenas o que este voo mudou. GettingUp a cada chegada
+        -- interrompia animacoes e podia derrubar o personagem durante a mineracao.
         if resource.changedAutoRotate and human.AutoRotate == false then
             pcall(function() human.AutoRotate = resource.autoRotate end)
         end
@@ -1499,10 +1607,12 @@ function Flight:_Release(resource)
     end
     if self.active == resource then self.active = nil end
 end
+
 function Flight:Stop()
     self.generation = self.generation + 1
     self:_Release(self.active)
 end
+
 function Flight:_Parameters(model, root)
     local parameters = RaycastParams.new()
     parameters.FilterType = Enum.RaycastFilterType.Exclude
@@ -1511,11 +1621,13 @@ function Flight:_Parameters(model, root)
     parameters.CollisionGroup = root.CollisionGroup
     return parameters
 end
+
 function Flight:_Blockcast(origin, size, delta, parameters)
     local distance = delta.Magnitude
     if distance < 0.001 then return nil end
     local direction = delta.Unit
     local traveled = 0
+    -- O limite do motor vale para cada cast, mesmo quando o destino esta longe.
     while traveled < distance do
         local length = math.min(MAX_CAST_DISTANCE, distance - traveled)
         local hit = workspace:Blockcast(CFrame.new(origin + direction * traveled),
@@ -1525,11 +1637,13 @@ function Flight:_Blockcast(origin, size, delta, parameters)
     end
     return nil
 end
+
 function Flight:ClearSegment(origin, destination, model, root)
     local hit = self:_Blockcast(origin, self:_BodySize(model, root), destination - origin,
         self:_Parameters(model, root))
     return hit == nil, hit
 end
+
 function Flight:_RootHeight(model, root)
     if self.options.rootHeight then return math.clamp(self.options.rootHeight, 2, 6) end
     local pc = self.Global.PlayerCharacter
@@ -1542,13 +1656,17 @@ function Flight:_RootHeight(model, root)
     end
     return math.clamp(height, 2, 6)
 end
+
 function Flight:_Clearance()
     return math.clamp(tonumber(self.options.flightClearance) or 1.5, 0.75, 1.5)
 end
+
 function Flight:_BodySize(model, root)
+    -- Inclui pernas e cabeca: verificar so o RootPart deixava os pes prenderem.
     return Vector3.new(math.max(root.Size.X, 2.3),
         math.max(self:_RootHeight(model, root) * 2, 5), math.max(root.Size.Z, 2))
 end
+
 function Flight:_GroundAt(position, floorY, parameters, initial)
     local stepUp = 2.5
     local drop = initial and 256 or 6
@@ -1557,6 +1675,7 @@ function Flight:_GroundAt(position, floorY, parameters, initial)
     if not hit or hit.Normal.Y < 0.55 or hit.Material == Enum.Material.Water then return nil end
     return hit.Position
 end
+
 function Flight:_GroundRoute(origin, requested, model, root, cancelled)
     local height, clearance = self:_RootHeight(model, root), self:_Clearance()
     local parameters = self:_Parameters(model, root)
@@ -1565,6 +1684,8 @@ function Flight:_GroundRoute(origin, requested, model, root, cancelled)
     local previous = Vector3.new(origin.X, ground.Y + height + clearance, origin.Z)
     local points, sourceIndices = {}, {}
     if (previous - origin).Magnitude > 0.15 then
+        -- Se a execucao anterior deixou o personagem alto, desce primeiro no
+        -- mesmo lugar. Nenhuma travessia lateral e feita nessa altura.
         if not self:ClearSegment(origin, previous, model, root) then
             return nil, "Obstáculo ao ajustar a altura do voo"
         end
@@ -1596,6 +1717,7 @@ function Flight:_GroundRoute(origin, requested, model, root, cancelled)
             previous, ground = point, floor
             if count % 64 == 0 then task.wait() end
         end
+        -- Nao confundir o piso de outro andar com o destino solicitado.
         if math.abs(previous.Y - clearance - target.Y) > clearance + 3 then
             return nil, "Destino em outro nível; procurando acesso pelo caminho"
         end
@@ -1603,11 +1725,14 @@ function Flight:_GroundRoute(origin, requested, model, root, cancelled)
     if #points == 0 then points[1], sourceIndices[1] = previous, #requested end
     return points, nil, sourceIndices
 end
+
 function Flight:PlanRoute(origin, destination, model, root)
     return self:_GroundRoute(origin, {destination}, model, root)
 end
+
 function Flight:MoveTo(destination, cancelled, onTrace, tolerance)
     self:Stop()
+    -- Uma tentativa recusada antes de decolar nao herda a recuperacao anterior.
     self.trace = {stage = "planning"}
     local generation = self.generation
     local pc = self.Global.PlayerCharacter
@@ -1649,6 +1774,7 @@ function Flight:MoveTo(destination, cancelled, onTrace, tolerance)
         destination.Z - root.Position.Z).Magnitude < 0.1
         and math.abs(destination.Y - root.Position.Y) > 2
     self.active = resource
+    -- Token de posse: um cleanup antigo nao remove a marca de um voo novo.
     self.options.flightActive = resource
     local function create(className, properties)
         local object = Instance.new(className)
@@ -1797,6 +1923,8 @@ function Flight:MoveTo(destination, cancelled, onTrace, tolerance)
                             return
                         end
                     end
+                    -- Antecipa a subida e so desce depois de passar pela borda.
+                    -- Assim os pes conservam folga sobre rampas e pequenos degraus.
                     local heightError = math.max(floor.Y, floorAhead.Y) + rootHeight + clearance - actual.Y
                     delta = Vector3.new(delta.X, heightError, delta.Z)
                     if resource.groundClearance < 0.65 or heightError > 1 then
@@ -1808,6 +1936,7 @@ function Flight:MoveTo(destination, cancelled, onTrace, tolerance)
                     return
                 end
                 local remaining = (destination - actual).Magnitude + remainingAfter[resource.waypointIndex]
+                -- A chegada precisa de espaco para frear mesmo com o slider em 80.
                 local commandSpeed = math.min(speed, delta.Magnitude / dt,
                     math.sqrt(2 * 100 * math.max(remaining - tolerance * 0.5, 0.01)))
                 local turn = nextTurn[resource.waypointIndex]
@@ -1816,6 +1945,8 @@ function Flight:MoveTo(destination, cancelled, onTrace, tolerance)
                     commandSpeed = math.min(commandSpeed, math.sqrt(12 * 12 + 2 * 100 * untilTurn))
                 end
                 local command = delta.Unit * commandSpeed
+                -- A sustentacao tem forca finita. Uma descida a 80 nao parava
+                -- antes do piso; limita a componente vertical sem saltar posicao.
                 local verticalLimit = command.Y < 0 and 6 or 10
                 if math.abs(command.Y) > verticalLimit then
                     command = command * (verticalLimit / math.abs(command.Y))
@@ -1874,6 +2005,7 @@ return Flight
 
 end)()
 local Ladder = (function()
+-- Conecta acessos de escadas reais usando o movimento normal do Humanoid.
 local Ladder = {}
 Ladder.__index = Ladder
 local UP = Vector3.new(0, 1, 0)
@@ -1924,6 +2056,8 @@ function Ladder:_Parameters(pc, part)
 end
 
 function Ladder:_Access(position, level, height, parameters)
+    -- Comecar perto da extremidade evita confundir o fundo da mina com o
+    -- patamar superior. A escada nunca serve como seu proprio piso.
     local hit = self.Workspace:Raycast(Vector3.new(position.X, level + 6, position.Z),
         -UP * 14, parameters)
     if not hit or hit.Normal.Y < 0.55 or hit.Material == Enum.Material.Water
@@ -1933,6 +2067,7 @@ end
 
 function Ladder:_Geometry(part)
     local frame, size = part.CFrame, part.Size
+    -- CustomLadder cilindrica usa X como eixo longitudinal no mapa.
     if part:IsA("Part") and part.Shape == Enum.PartType.Cylinder then
         frame = frame * CFrame.Angles(0, 0, frame.XVector.Y > 0 and -math.pi / 2 or math.pi / 2)
         size = Vector3.new(size.Y, size.X, size.Z)
@@ -1978,6 +2113,8 @@ function Ladder:GetLinks(origin, maxDistance)
                     local lower = self:_Access(lowerEnd + normal * offset,
                         lowerEnd.Y, height, parameters)
                     if lower then
+                        -- No alto, o patamar pode ficar do mesmo lado ou atras
+                        -- da escada. Ambos sao acessos reais, nunca pontos no ar.
                         for _, exitSign in ipairs({1, -1}) do
                             local upper = self:_Access(upperEnd + normal * offset * exitSign,
                                 upperEnd.Y, height, parameters)
@@ -2000,6 +2137,7 @@ function Ladder:GetLinks(origin, maxDistance)
     end)
     return links
 end
+
 function Ladder:_Release(resource)
     if not resource or resource.closed then return end
     resource.closed = true
@@ -2019,14 +2157,17 @@ function Ladder:_Release(resource)
     if self.options.ladderActive == resource then self.options.ladderActive = nil end
     if self.active == resource then self.active = nil end
 end
+
 function Ladder:Stop()
     self.generation = self.generation + 1
     self:_Release(self.active)
 end
+
 function Ladder:Destroy()
     self:Stop()
     self.parts = {}
 end
+
 function Ladder:_EscapeTarget(pc, part)
     local frame, _, normal = self:_Geometry(part)
     if not frame then return nil end
@@ -2053,6 +2194,7 @@ function Ladder:_EscapeTarget(pc, part)
     end
     return best
 end
+
 function Ladder:Escape(cancelled, onTrace)
     self:Stop()
     local pc = self.Global.PlayerCharacter
@@ -2063,6 +2205,8 @@ function Ladder:Escape(cancelled, onTrace)
     self.failedParts[part] = os.clock() + (self.options.ladderFailureCooldown or 60)
     local target = self:_EscapeTarget(pc, part)
     if not target then
+        -- In the middle of a tall ladder, return to a real lower landing
+        -- instead of jumping into empty space.
         local frame,size,normal,depth=self:_Geometry(part)
         if frame then
             if flat(pc.RootPart.Position-frame.Position):Dot(normal)<0 then normal=-normal end
@@ -5826,6 +5970,8 @@ return function(UI, Mining, Navigation, Sales, Pickup, Flight, Recovery, RoutePl
                             updateInventory()
                         end
                         if not cancelled() then
+                            -- The final strike can remove the deposit before its
+                            -- gem pickup replicates. Keep the last real position.
                             task.wait(.35)
                             if not cancelled()then
                                 local collected, collectError = collectNearby(dropOrigin, cancelled)
@@ -5843,6 +5989,7 @@ return function(UI, Mining, Navigation, Sales, Pickup, Flight, Recovery, RoutePl
         end
         return true
     end
+
     local function supervise(generation)
         local function cancelled()
             return state.closed or not state.running or generation ~= state.generation
@@ -5855,6 +6002,8 @@ return function(UI, Mining, Navigation, Sales, Pickup, Flight, Recovery, RoutePl
             until os.clock() >= deadline
             return not cancelled()
         end
+        -- Mantem a picareta escolhida na mao tambem durante viagens e esperas.
+        -- O adaptador serializa as trocas e aguarda o fim das picaretadas.
         state.equipWatchActive = true
         local equipToken = {}
         state.equipWatchToken = equipToken
@@ -5916,6 +6065,7 @@ return function(UI, Mining, Navigation, Sales, Pickup, Flight, Recovery, RoutePl
         end
         releaseActions()
     end
+
     function api:Start()
         if state.closed or state.running then return false end
         if state.workerActive then status("Aguarde a parada anterior terminar"); return false end
@@ -5948,6 +6098,7 @@ return function(UI, Mining, Navigation, Sales, Pickup, Flight, Recovery, RoutePl
         end)
         return true
     end
+
     function api:Destroy()
         if state.closed then return end
         self:Stop()
@@ -5957,6 +6108,7 @@ return function(UI, Mining, Navigation, Sales, Pickup, Flight, Recovery, RoutePl
         if ui then ui:Destroy() end
         if environment.TWWMiner == self then environment.TWWMiner = nil end
     end
+
     local function refresh()
         local ores = {}
         for _,name in ipairs(ORE_CHOICES)do
@@ -5964,6 +6116,7 @@ return function(UI, Mining, Navigation, Sales, Pickup, Flight, Recovery, RoutePl
         end
         if ui then ui:SetOres(ores) end
     end
+
     local reports=Reports and Reports.create(function()
         local snapshot=api:GetState()
         local pc=Global.PlayerCharacter
@@ -5977,6 +6130,7 @@ return function(UI, Mining, Navigation, Sales, Pickup, Flight, Recovery, RoutePl
             climbing=pc and pc.Climbing,magnetized=pc and pc.CurrentLadderMagnetized,
             ladder=pc and pc.CurrentLadder and pc.CurrentLadder.Part and pc.CurrentLadder.Part:GetFullName()}
     end)
+
     ui = UI.create({
         oreLabels=ORE_LABELS,
         oreWeights=ORE_WEIGHTS,
@@ -6012,9 +6166,12 @@ return function(UI, Mining, Navigation, Sales, Pickup, Flight, Recovery, RoutePl
     environment.TWWMiner = api
     return api
 end
+
 end)()
 return launch(UI, Mining, Navigation, Sales, Pickup, Flight, Recovery, RoutePlanner, Ladder, TerrainPath, Streaming, Passages, English, Reports)
 end
+
+
 local Players = game:GetService("Players")
 local HttpService = game:GetService("HttpService")
 local player = Players.LocalPlayer
@@ -6028,6 +6185,8 @@ gui.ResetOnSpawn = false
 gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 gui.DisplayOrder = 40
 gui.Parent = parent
+
+-- GameSense-inspired: square geometry, dense charcoal panels and red accents.
 local C = {
     background = Color3.fromRGB(14, 14, 14),
     panel = Color3.fromRGB(23, 23, 23),
@@ -6097,10 +6256,13 @@ local status = make("TextLabel", {Name = "Status", Text = "Get a key, then paste
 }, statusPanel)
 local footer = text("TextLabel", "Made by: z1xl", UDim2.fromOffset(19, 235), UDim2.fromOffset(352, 12), 10, C.muted)
 footer.TextXAlignment = Enum.TextXAlignment.Left
+
+-- Drag from header, without changing the original autofarm UI.
 local UIS = game:GetService("UserInputService")
 local dragStart, windowStart, dragging, dragTouch
 local dragArea = make("Frame", {Name = "DragArea", Position = UDim2.fromOffset(12, 13),
     Size = UDim2.fromOffset(356, 33), BackgroundTransparency = 1, Active = true}, frame)
+-- The transparent header overlay is behind no functional buttons.
 local headerText = make("TextLabel", {Text = "TWW AUTOMINER", Position = UDim2.fromOffset(7, 5),
     Size = UDim2.fromOffset(235, 23), BackgroundTransparency = 1,
     Font = Enum.Font.Code, TextSize = 17, TextColor3 = C.text,
@@ -6140,6 +6302,7 @@ get.Activated:Connect(function()
         status.Text="Open: "..WORKINK_LINK
     end
 end)
+-- Local 12-hour license. This is convenience, not tamper-proof DRM.
 local LICENSE_SECONDS = 12 * 60 * 60
 local LICENSE_FILE = "tww_autominer_license_" .. tostring(player.UserId) .. ".json"
 local function licenseValid()
@@ -6206,6 +6369,8 @@ verify.Activated:Connect(function()
             status.Text="Verification failed: network/API error."
             return
         end
+        -- Fail closed: only keys issued for THIS Work.ink link are accepted.
+        -- Confirm the real API response schema before using in production.
         if type(result)=="table" and result.valid==true
             and type(result.info)=="table"
             and tostring(result.info.linkId or "")==EXPECTED_LINK_ID
@@ -6216,7 +6381,7 @@ verify.Activated:Connect(function()
             status.Text = saved and "Key accepted! 12-hour license saved." or "Key accepted! Local save unavailable."
             unlock()
         else
-            status.Text="Invalid key"
+            status.Text="Invalid key or link ID not confirmed by API."
         end
     end)
 end)
