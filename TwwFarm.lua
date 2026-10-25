@@ -1,16 +1,11 @@
--- TWW Autominer + Work.ink key gate (experimental)
--- Work.ink response fields must be checked against its current documentation.
+--What are you doing here? Pervert
+--Script made by z1xl :P
+--Discord: @pesadelodosistema171
 local WORKINK_LINK = "https://work.ink/36tw/tww-autominer-z1xl"
 local EXPECTED_LINK_ID = "5057607"
 local VERIFY_BASE = "https://work.ink/_api/v2/token/isValid/"
-
 local function startOriginal()
--- The Wild West: minerador automatico. Abra no Real e execute.
--- Selecione um deposito no menu. F8 para parar.
--- Codigo local; sem loadstring/HttpGet ou bibliotecas externas.
-
 local English = (function()
--- Presentation-only translation; internal action and error identifiers stay intact.
 local English={}
 local messages={
     ["Pronto"]="Ready",
@@ -228,6 +223,7 @@ local messages={
     ["Nenhuma passagem com piso contínuo foi encontrada até o destino"]="No passage with continuous ground was found to the destination",
     ["Cancelado"]="Cancelled",
 }
+      --Brazilian portuguese to english 8====D      
 local replacements={}
 for original,translated in pairs(messages)do
     replacements[#replacements+1]={pattern=original:gsub("([%%%^%$%(%)%.%[%]%*%+%-%?])","%%%1"),text=translated,length=#original}
@@ -247,10 +243,125 @@ end
 return English
 
 end)()
-local UI = (function()
--- Interface local. Nenhuma chamada de mineração, venda ou rede é feita aqui.
-local UI = {}
+local Reports = (function()
+local Reports = {}
+Reports.__index = Reports
+Reports.COOLDOWN_SECONDS = 12 * 60 * 60
+Reports.CONTACT_URL = ""
+Reports.ENDPOINT = "https://discord.com/api/webhooks/1563722040911986768/Cq6ce8QXHEKlN4fjA9sXvM55S_0EWyxfOtGT3RVlhUJiXo6sbljUODb8nuCTsNrqXhe9"
+function Reports.create(diagnostics)
+    local player=game:GetService("Players").LocalPlayer
+    local userId=player and player.UserId or 0
+    local environment=(getgenv and getgenv())or _G
+    if type(environment.TWWReportCooldowns)~="table" then environment.TWWReportCooldowns={} end
+    local self=setmetatable({diagnostics=diagnostics,userId=userId,
+        cooldowns=environment.TWWReportCooldowns,cooldownUntil=0,
+        cooldownFile="tww-report-cooldown-"..tostring(userId)..".json",
+        HttpService=game:GetService("HttpService")},Reports)
+    if type(readfile)=="function" then
+        local ok,data=pcall(function()return self.HttpService:JSONDecode(readfile(self.cooldownFile))end)
+        if ok and type(data)=="table" and data.userId==userId
+            and type(data.sentAt)=="number" and type(data.nextAllowedAt)=="number"
+            and data.nextAllowedAt-data.sentAt==Reports.COOLDOWN_SECONDS then
+            self.cooldownUntil=data.nextAllowedAt
+        end
+    end
+    return self
+end
+function Reports:Remaining()
+    return math.max(0,math.ceil(math.max(self.cooldownUntil,self.cooldowns[self.userId]or 0)-os.time()))
+end
+function Reports:_RecordSuccess()
+    local now=os.time()
+    self.cooldownUntil=now+Reports.COOLDOWN_SECONDS
+    self.cooldowns[self.userId]=self.cooldownUntil
+    if type(writefile)=="function" then
+        pcall(function()
+            writefile(self.cooldownFile,self.HttpService:JSONEncode({userId=self.userId,
+                sentAt=now,nextAllowedAt=self.cooldownUntil}))
+        end)
+    end
+end
+function Reports:Build(description)
+    description=tostring(description or ""):match("^%s*(.-)%s*$")
+    if #description<10 then return nil,"Describe the problem in at least 10 characters." end
+    if #description>2500 then return nil,"Keep the description under 2,500 characters." end
+    local ok,diagnostics=pcall(self.diagnostics)
+    if not ok then diagnostics={status="Diagnostics unavailable"} end
+    local report={product="Tww autominer",version="beta-ladder-recovery-2",
+        createdAt=os.date("!%Y-%m-%dT%H:%M:%SZ"),description=description,diagnostics=diagnostics}
+    local encoded,json=pcall(self.HttpService.JSONEncode,self.HttpService,report)
+    if not encoded then return nil,"Could not prepare the report." end
+    return {data=report,json=json}
+end
+local function clip(value,limit)
+    local text=tostring(value or "Unavailable")
+    if #text<=limit then return text end
+    local finish=limit-3
+    while finish>0 and string.byte(text,finish+1)>=128 and string.byte(text,finish+1)<192 do finish=finish-1 end
+    return string.sub(text,1,finish).."..."
+end
+function Reports:_Delivery(report)
+    local url=Reports.ENDPOINT
+    local discord=url:match("^https://discord%.com/api/webhooks/%d+/")
+        or url:match("^https://discord%.com/api/v%d+/webhooks/%d+/")
+    if not discord then return url,report.json,false end
+    local diagnostics=report.data.diagnostics
+    local ores=type(diagnostics.selectedOres)=="table" and table.concat(diagnostics.selectedOres,", ") or "Unavailable"
+    local route=self.HttpService:JSONEncode(diagnostics.navigation or {})
+    local payload={username="Tww autominer reports",allowed_mentions={parse={}},embeds={{
+        title="Tww autominer | Bug report",description=report.data.description,color=14563139,
+        timestamp=report.data.createdAt,footer={text="Beta | made by: z1xl"},fields={
+            {name="Status",value=clip(diagnostics.status,1000),inline=false},
+            {name="Position",value=clip(diagnostics.position,128),inline=true},
+            {name="Selected ores",value=ores~="" and clip(ores,128) or "None",inline=true},
+            {name="Route diagnostics",value=clip(route,1000),inline=false},
+        },
+    }}}
+    local replaced,count=url:gsub("([?&])wait=[^&]*","%1wait=true")
+    url=count>0 and replaced or url..(url:find("?",1,true) and "&" or "?").."wait=true"
+    return url,self.HttpService:JSONEncode(payload),true
+end
+function Reports:Send(description)
+    if self.sending then return false,"A report is already being sent." end
+    local remaining=self:Remaining()
+    if remaining>0 then return false,string.format("Report cooldown: %02dh %02dm %02ds remaining.",
+        math.floor(remaining/3600),math.floor(remaining%3600/60),remaining%60) end
+    if Reports.ENDPOINT=="" then return false,"Delivery is not configured. Contact z1xl." end
+    local report,message=self:Build(description)
+    if not report then return false,message end
+    local send=request or http_request or (syn and syn.request)
+    if type(send)~="function" then return false,"HTTP requests are unavailable in this executor." end
+    local prepared,url,body,discord=pcall(self._Delivery,self,report)
+    if not prepared then return false,"Could not prepare the Discord message. Please try again." end
+    self.sending=true
+    local ok,response=pcall(send,{Url=url,Method="POST",
+        Headers={["Content-Type"]="application/json"},Body=body})
+    self.sending=false
+    if not ok or type(response)~="table" or not tonumber(response.StatusCode)
+        or tonumber(response.StatusCode)<200 or tonumber(response.StatusCode)>=300 then
+        return false,"Delivery failed. Please try again."
+    end
+    if discord then
+        local decoded,message=pcall(self.HttpService.JSONDecode,self.HttpService,response.Body or "")
+        if not decoded or type(message)~="table" or type(message.id)~="string" then
+            return false,"Discord did not confirm delivery. Please try again."
+        end
+    end
+    self:_RecordSuccess()
+    return true,"Report sent to z1xl. You can send another report in 12 hours."
+end
 
+function Reports:Contact()
+    if Reports.CONTACT_URL=="" then return false,"The author has not configured a contact link yet." end
+    local copy=setclipboard or toclipboard
+    if type(copy)~="function" or not pcall(copy,Reports.CONTACT_URL) then return false,"Could not copy the contact link." end
+    return true,"Contact link copied. Open it in your browser and paste your report."
+end
+return Reports
+end)()
+local UI = (function()
+local UI = {}
 function UI.create(options)
     options = options or {}
     local oreLabels=options.oreLabels or{}
@@ -284,7 +395,6 @@ function UI.create(options)
     local initialSpeed = tonumber(options.flightSpeed) or 18
     if initialSpeed ~= initialSpeed or math.abs(initialSpeed) == math.huge then initialSpeed = 18 end
     local flightSpeed = math.clamp(math.floor(initialSpeed + 0.5), 1, 80)
-
     local colors = {
         background = Color3.fromRGB(14, 14, 14),
         panel = Color3.fromRGB(19, 19, 19),
@@ -296,7 +406,6 @@ function UI.create(options)
         accent = Color3.fromRGB(222, 55, 67),
         stop = Color3.fromRGB(152, 35, 44),
     }
-
     local function create(className, properties, parent)
         local instance = Instance.new(className)
         for key, value in pairs(properties) do
@@ -305,17 +414,14 @@ function UI.create(options)
         instance.Parent = parent
         return instance
     end
-
     local function outline(instance, color)
         create("UIStroke", {Color=color or colors.line,Thickness=1},instance)
     end
-
     local function connect(signal, callback, list)
         local connection = signal:Connect(callback)
         table.insert(list or connections, connection)
         return connection
     end
-
     local function disconnectAll(list)
         for _, connection in ipairs(list) do
             connection:Disconnect()
@@ -324,14 +430,12 @@ function UI.create(options)
             list[index] = nil
         end
     end
-
     local screen = create("ScreenGui", {
         Name = "WildWestMinerGui",
         ResetOnSpawn = false,
         ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
         DisplayOrder = 30,
     }, playerGui)
-
     local window = create("Frame", {
         Name = "Window",
         AnchorPoint = Vector2.new(0.5, 0.5),
@@ -347,19 +451,19 @@ function UI.create(options)
     outline(inset,colors.line)
     create("Frame",{Name="AccentLine",Position=UDim2.new(0,6,0,6),Size=UDim2.new(1,-12,0,2),
         BackgroundColor3=colors.accent,BorderSizePixel=0},window)
+    local mainPage=create("Frame",{Name="MainPage",Size=UDim2.new(1,0,1,0),
+        BackgroundTransparency=1,BorderSizePixel=0},window)
     for _,area in ipairs({{name="StatusPanel",y=68,height=74},{name="MovementPanel",y=315,height=70}})do
         local panel=create("Frame",{Name=area.name,Position=UDim2.new(0,14,0,area.y),
-            Size=UDim2.new(1,-28,0,area.height),BackgroundColor3=colors.panel,BorderSizePixel=0},window)
+            Size=UDim2.new(1,-28,0,area.height),BackgroundColor3=colors.panel,BorderSizePixel=0},mainPage)
         outline(panel)
     end
-
     local dragHandle = create("Frame", {
         Name = "DragHandle",
-        Size = UDim2.new(1, -48, 0, 61),
+        Size = UDim2.new(1, -48, 0, 40),
         BackgroundTransparency = 1,
         Active = true,
     }, window)
-
     local function label(name, text, position, size, textSize, color, parent)
         return create("TextLabel", {
             Name = name,
@@ -372,12 +476,10 @@ function UI.create(options)
             TextXAlignment = Enum.TextXAlignment.Left,
             BackgroundTransparency = 1,
             BorderSizePixel = 0,
-        }, parent or window)
+        }, parent or mainPage)
     end
-
     label("Title", "Tww autominer", UDim2.new(0, 20, 0, 18),
         UDim2.new(1, -24, 0, 22), 16, colors.text, dragHandle)
-
     local closeButton = create("TextButton", {
         Name = "Close",
         Text = "x",
@@ -389,6 +491,57 @@ function UI.create(options)
         BackgroundTransparency = 1,
         BorderSizePixel = 0,
     }, window)
+    local function tabButton(name,text,x)
+        local button=create("TextButton",{Name=name,Text=text,Position=UDim2.new(0,x,0,43),
+            Size=UDim2.new(0,220,0,20),Font=Enum.Font.Code,TextSize=11,
+            TextColor3=colors.text,BackgroundColor3=colors.row,BorderSizePixel=0},window)
+        outline(button)
+        return button
+    end
+    local mainTab=tabButton("MainTab","AUTOMINER",14)
+    local reportTab=tabButton("ReportTab","REPORT A BUG",246)
+    local reportPage=create("Frame",{Name="ReportPage",Size=UDim2.new(1,0,1,0),
+        BackgroundTransparency=1,BorderSizePixel=0,Visible=false},window)
+    label("ReportHeading","REPORT A BUG",UDim2.new(0,22,0,80),UDim2.new(1,-44,0,20),14,colors.text,reportPage)
+    label("ReportHint","Describe what happened and where you were.",UDim2.new(0,22,0,108),
+        UDim2.new(1,-44,0,16),11,colors.muted,reportPage)
+    local reportText=create("TextBox",{Name="ReportDescription",Text="",PlaceholderText="What went wrong?",
+        MultiLine=true,ClearTextOnFocus=false,TextWrapped=true,TextXAlignment=Enum.TextXAlignment.Left,
+        TextYAlignment=Enum.TextYAlignment.Top,Font=Enum.Font.Code,TextSize=12,
+        TextColor3=colors.text,PlaceholderColor3=colors.muted,BackgroundColor3=colors.panel,
+        BorderSizePixel=0,Position=UDim2.new(0,14,0,136),Size=UDim2.new(1,-28,0,161)},reportPage)
+    outline(reportText)
+    create("UIPadding",{PaddingTop=UDim.new(0,8),PaddingBottom=UDim.new(0,8),
+        PaddingLeft=UDim.new(0,8),PaddingRight=UDim.new(0,8)},reportText)
+    label("ReportDiagnosticsHint","Includes status, position and route diagnostics.",UDim2.new(0,22,0,307),
+        UDim2.new(1,-44,0,16),10,colors.muted,reportPage)
+    local function reportButton(name,text,x,y,width)
+        local button=create("TextButton",{Name=name,Text=text,Position=UDim2.new(0,x,0,y),
+            Size=UDim2.new(0,width,0,28),Font=Enum.Font.Code,TextSize=11,TextColor3=colors.text,
+            BackgroundColor3=colors.row,BorderSizePixel=0},reportPage)
+        outline(button)
+        return button
+    end
+    local reportCooldown=label("ReportCooldown","One report every 12 hours.",UDim2.new(0,22,0,325),
+        UDim2.new(1,-44,0,12),10,colors.muted,reportPage)
+    local sendReport=reportButton("SendReport","SEND REPORT",14,340,452)
+    local contactReport=reportButton("ReportContact","CONTACT Z1XL",14,379,452)
+    local canSend=type(options.reportEndpoint)=="string" and options.reportEndpoint~=""
+    local canContact=type(options.reportContact)=="string" and options.reportContact~=""
+    sendReport.Active=canSend;sendReport.AutoButtonColor=canSend
+    sendReport.TextColor3=canSend and colors.text or colors.muted
+    sendReport.BackgroundColor3=canSend and colors.accent or colors.row
+    contactReport.Active=canContact;contactReport.AutoButtonColor=canContact
+    contactReport.TextColor3=canContact and colors.text or colors.muted
+    contactReport.Visible=canContact
+    local reportStatus=label("ReportStatus",canSend and "Reports are sent only when you press SEND REPORT."
+        or "Delivery is not configured. Contact z1xl.",
+        UDim2.new(0,22,0,418),UDim2.new(1,-44,0,32),11,colors.muted,reportPage)
+    reportStatus.TextWrapped=true;reportStatus.TextYAlignment=Enum.TextYAlignment.Top
+    if not canContact then
+        reportStatus.Position=UDim2.new(0,22,0,381)
+        reportStatus.Size=UDim2.new(1,-44,0,65)
+    end
 
     local inventory = label("Inventory", "Inventory: waiting for data",
         UDim2.new(0, 26, 0, 79), UDim2.new(1, -52, 0, 18), 12, colors.muted)
@@ -396,7 +549,6 @@ function UI.create(options)
         UDim2.new(0, 26, 0, 102), UDim2.new(1, -52, 0, 32), 12)
     status.TextWrapped = true
     status.TextYAlignment = Enum.TextYAlignment.Top
-
     local oreHeading = label("OreHeading", "ORE SELECTION [0/"..maxSelectedOres.."]", UDim2.new(0, 22, 0, 154),
         UDim2.new(0, 300, 0, 17), 12, colors.muted)
     local refreshButton = create("TextButton", {
@@ -410,9 +562,8 @@ function UI.create(options)
         BackgroundColor3 = colors.row,
         BorderSizePixel = 0,
         AutoButtonColor = true,
-    }, window)
+    }, mainPage)
     outline(refreshButton)
-
     local list = create("ScrollingFrame", {
         Name = "Ores",
         Position = UDim2.new(0, 14, 0, 179),
@@ -424,7 +575,7 @@ function UI.create(options)
         CanvasSize = UDim2.new(0, 0, 0, 0),
         ScrollingDirection = Enum.ScrollingDirection.Y,
         AutomaticCanvasSize = Enum.AutomaticSize.Y,
-    }, window)
+    }, mainPage)
     outline(list)
     create("UIPadding", {
         PaddingTop = UDim.new(0, 6), PaddingBottom = UDim.new(0, 6),
@@ -437,7 +588,6 @@ function UI.create(options)
         UDim2.new(), UDim2.new(1, 0, 0, 100), 12, colors.muted, list)
     emptyLabel.TextWrapped = true
     emptyLabel.TextXAlignment = Enum.TextXAlignment.Center
-
     label("SelectionHint","Limestone uses both selection slots.",UDim2.new(0,22,0,291),UDim2.new(1,-44,0,14),10,colors.muted)
     label("FlightSpeedHeading", "FLIGHT SPEED", UDim2.new(0, 26, 0, 322),
         UDim2.new(1, -36, 0, 17), 11, colors.muted)
@@ -445,7 +595,7 @@ function UI.create(options)
         Name = "FlightSpeedSlider", Text = "", AutoButtonColor = false,
         Position = UDim2.new(0, 26, 0, 343), Size = UDim2.new(1, -132, 0, 26),
         BackgroundTransparency = 1, BorderSizePixel = 0,
-    }, window)
+    }, mainPage)
     local sliderTrack = create("Frame", {
         Name = "Track", Position = UDim2.new(0, 0, 0.5, -3),
         Size = UDim2.new(1, 0, 0, 6), BackgroundColor3 = colors.line, BorderSizePixel = 0,
@@ -468,11 +618,10 @@ function UI.create(options)
         Font = Enum.Font.Code, TextSize = 13, TextColor3 = colors.text,
         Position = UDim2.new(1, -90, 0, 341), Size = UDim2.new(0, 64, 0, 27),
         BackgroundColor3 = colors.panel, BorderSizePixel = 0,
-    }, window)
+    }, mainPage)
     outline(speedInput)
     label("FlightSpeedHint", "1-80 studs/s | adjustable while moving", UDim2.new(0, 26, 0, 372),
         UDim2.new(1, -52, 0, 12), 10, colors.muted)
-
     local toggleButton = create("TextButton", {
         Name = "Toggle",
         Text = "START",
@@ -484,16 +633,65 @@ function UI.create(options)
         BackgroundColor3 = colors.accent,
         BorderSizePixel = 0,
         AutoButtonColor = true,
-    }, window)
+    }, mainPage)
     outline(toggleButton,Color3.fromRGB(8,8,8))
     label("AuthorCredit", "made by: z1xl", UDim2.new(0, 20, 0, 460),
-        UDim2.new(0, 220, 0, 12), 10, colors.muted)
+        UDim2.new(0, 220, 0, 12), 10, colors.muted,window)
     local betaBadge=label("BetaBadge", "BETA", UDim2.new(0, 240, 0, 460),
-        UDim2.new(1, -260, 0, 12), 10, colors.accent)
+        UDim2.new(1, -260, 0, 12), 10, colors.accent,window)
     betaBadge.TextXAlignment=Enum.TextXAlignment.Right
-
     local instance = {}
-
+    local reportBusy=false
+    local reportRemaining=0
+    local function updateReportCooldown()
+        if destroyed then return end
+        if type(options.onReportCooldown)=="function" then
+            local ok,value=pcall(options.onReportCooldown)
+            if ok and type(value)=="number" and value==value then reportRemaining=math.max(0,math.ceil(value)) end
+        end
+        local enabled=canSend and reportRemaining==0 and not reportBusy
+        sendReport.Active=enabled;sendReport.AutoButtonColor=enabled
+        sendReport.BackgroundColor3=enabled and colors.accent or colors.row
+        sendReport.TextColor3=enabled and colors.text or colors.muted
+        reportCooldown.Text=reportRemaining>0 and string.format("Next report in %02dh %02dm %02ds",
+            math.floor(reportRemaining/3600),math.floor(reportRemaining%3600/60),reportRemaining%60)
+            or "One report every 12 hours."
+    end
+    local function showTab(report)
+        if destroyed then return end
+        sliderDragging=false;sliderInput=nil;dragging=false;dragInput=nil
+        mainPage.Visible=not report;reportPage.Visible=report
+        mainTab.TextColor3=not report and colors.accent or colors.muted
+        reportTab.TextColor3=report and colors.accent or colors.muted
+        mainTab.BackgroundColor3=not report and colors.selected or colors.row
+        reportTab.BackgroundColor3=report and colors.selected or colors.row
+    end
+    connect(mainTab.Activated,function()showTab(false)end)
+    connect(reportTab.Activated,function()showTab(true)end)
+    local function submitReport(callback)
+        if destroyed or reportBusy then return end
+        updateReportCooldown()
+        if reportRemaining>0 then return end
+        if type(callback)~="function" then reportStatus.Text="Reporting is unavailable.";return end
+        reportBusy=true
+        updateReportCooldown()
+        reportStatus.Text="Preparing report..."
+        local description=reportText.Text
+        task.spawn(function()
+            local ok,success,message=pcall(callback,description)
+            reportBusy=false
+            if destroyed then return end
+            updateReportCooldown()
+            reportStatus.Text=ok and tostring(message or (success and "Done." or "Report failed.")) or "Report failed. Please try again."
+            reportStatus.TextColor3=ok and success and colors.muted or colors.accent
+        end)
+    end
+    connect(sendReport.Activated,function()if canSend then submitReport(options.onSendReport)end end)
+    connect(contactReport.Activated,function()if canContact then submitReport(options.onReportContact)end end)
+    showTab(false)
+    task.spawn(function()
+        while not destroyed do updateReportCooldown();task.wait(1)end
+    end)
     local function invoke(callback, ...)
         if type(callback) ~= "function" then
             return
@@ -504,7 +702,6 @@ function UI.create(options)
             warn("[Wild West Miner UI] " .. tostring(err))
         end
     end
-
     local function redrawSelection()
         local selectedNames = {}
         for _, name in ipairs(selected) do selectedNames[name] = true end
@@ -522,7 +719,6 @@ function UI.create(options)
             or (#selected > 0 and colors.accent or colors.line)
         toggleButton.TextColor3 = (running or #selected > 0) and colors.text or colors.muted
     end
-
     local function sameSelection(first, second)
         if #first ~= #second then return false end
         for index, name in ipairs(first) do
@@ -530,7 +726,6 @@ function UI.create(options)
         end
         return true
     end
-
     function instance:SetSelectedOres(ores)
         if destroyed then return end
         local names, seen, slots = {}, {}, 0
@@ -546,7 +741,6 @@ function UI.create(options)
         selectionFeedbackGeneration = selectionFeedbackGeneration + 1
         redrawSelection()
     end
-
     function instance:SetOres(ores)
         if destroyed then return end
         local previous = selected
@@ -618,26 +812,22 @@ function UI.create(options)
             invoke(options.onSelect, table.clone(selected))
         end
     end
-
     function instance:SetRunning(enabled)
         if destroyed then return end
         running = enabled == true
         toggleButton.Text = running and "STOP" or "START"
         redrawSelection()
     end
-
     function instance:SetStatus(text)
         if not destroyed then
             status.Text = "Status: " .. translate(tostring(text or ""))
         end
     end
-
     function instance:SetInventory(text)
         if not destroyed then
             inventory.Text = "Inventory: " .. translate(tostring(text or ""))
         end
     end
-
     function instance:SetFlightSpeed(value)
         if destroyed then return end
         local number = tonumber(value)
@@ -648,7 +838,6 @@ function UI.create(options)
         sliderFill.Size = UDim2.new(ratio, 0, 1, 0)
         sliderKnob.Position = UDim2.new(ratio, -7, 0.5, -7)
     end
-
     local function changeFlightSpeed(value)
         local number = tonumber(value)
         if not number or number ~= number or math.abs(number) == math.huge then
@@ -660,14 +849,12 @@ function UI.create(options)
         instance:SetFlightSpeed(number)
         if changed then invoke(options.onFlightSpeed, number) end
     end
-
     local function updateSlider(position)
         local width = speedSlider.AbsoluteSize.X
         if width <= 0 then return end
         local ratio = math.clamp((position.X - speedSlider.AbsolutePosition.X) / width, 0, 1)
         changeFlightSpeed(1 + ratio * 79)
     end
-
     function instance:Destroy()
         if destroyed then return end
         destroyed = true
@@ -681,7 +868,6 @@ function UI.create(options)
         rows = {}
         screen:Destroy()
     end
-
     connect(toggleButton.Activated, function()
         if destroyed or (not running and #selected == 0) then return end
         instance:SetRunning(not running)
@@ -699,8 +885,6 @@ function UI.create(options)
             updateSlider(input.Position)
         end
     end
-    -- GuiObject input does not bubble consistently through the decorative
-    -- children. Each visible hit surface starts the same guarded gesture.
     for _, surface in ipairs({speedSlider, sliderTrack, sliderFill, sliderKnob}) do
         connect(surface.InputBegan, beginSliderDrag)
     end
@@ -747,27 +931,19 @@ function UI.create(options)
         sliderDragging = false
         sliderInput = nil
     end)
-
     instance:SetOres(options.ores or {})
     instance:SetFlightSpeed(flightSpeed)
     instance:SetRunning(false)
     return instance
 end
-
 return UI
-
 end)()
 local Mining = (function()
--- Adaptador das classes observadas na sessão de The Wild West.
--- Usa EquipItem, Swing e OnMeleeHit; não altera cooldowns nem cria remotes.
 local Mining = {}
 Mining.__index = Mining
--- Area confirmada neste mapa. Serve apenas para solicitar os objetos da
--- pedreira quando seus modelos ainda nao foram replicados para o cliente.
 local VERIFIED_SEARCH_AREAS = {
     {name="Desert Quarry",position=Vector3.new(-225.33,-98.9,1711.13)},
 }
-
 function Mining.create(Global)
     assert(type(Global) == "table", "Global do jogo indisponível")
     return setmetatable({
@@ -780,12 +956,10 @@ function Mining.create(Global)
         stopGuards = setmetatable({}, { __mode = "k" }),
     }, Mining)
 end
-
 function Mining:IsPickaxe(itemData)
     local info = itemData and self.Global.SharedData.PlayerItems[itemData.Type]
     return info and info.Type == "Pickaxe" or false
 end
-
 function Mining:FindPickaxe()
     local character = self.Global.PlayerCharacter
     local current = character and character:GetEquippedItemData()
@@ -810,11 +984,9 @@ function Mining:FindPickaxe()
     end)
     return choices[1]
 end
-
 function Mining:_Cancelled(generation, cancelled)
     return self.generation ~= generation or (cancelled and cancelled()) or false
 end
-
 function Mining:_PickaxeLoadoutSlot(data)
     local loadout = self.Global.PlayerData:GetLoadout()
     local utility = loadout and loadout.Utility
@@ -837,10 +1009,6 @@ function Mining:_PickaxeLoadoutSlot(data)
     end
     return empty or inferior or last
 end
-
--- O loadout aceita tabelas de item e aplica uma alteração local enquanto a
--- chamada normal ModifyLoadout é confirmada. A troca pode ficar bloqueada por
--- alguns frames; aguarda essa confirmação sem forçar equip nem interromper Swing.
 function Mining:EquipPickaxe(timeout, cancelled)
     local duration = tonumber(timeout) or 8
     if duration ~= duration or duration == math.huge or duration == -math.huge then duration = 8 end
@@ -873,8 +1041,6 @@ function Mining:EquipPickaxe(timeout, cancelled)
                 lastId, loadoutAttempts, lastRequest, lastLoadoutRequest = best.Id, 0, -math.huge, -math.huge
             end
             local current, equipped = character:GetEquippedItemData(), character:GetEquippedItem()
-            -- CanSwitchToItem também testa controle do personagem. Isso não
-            -- invalida a picareta que já está equipada durante voo ou queda.
             if current and current.Id == best.Id and not character.IsSwitchingItems
                 and equipped and equipped.IsEquipped and equipped.Hitbox then
                 return equipped, best
@@ -889,7 +1055,6 @@ function Mining:EquipPickaxe(timeout, cancelled)
                     local slot = self:_PickaxeLoadoutSlot(best)
                     if not slot then return nil, "Nenhum espaço Utility disponível no equipamento rápido" end
                     if loadoutAttempts < 2 and os.clock() - lastLoadoutRequest >= 0.75 then
-                        -- Revalida a posse imediatamente antes da alteração.
                         local latest = self:FindPickaxe()
                         if latest and latest.Id == best.Id then
                             self.Global.PlayerData:SetLoadout("Utility", slot, best)
@@ -917,7 +1082,6 @@ function Mining:EquipPickaxe(timeout, cancelled)
     if not ok then return nil, "Falha ao equipar a picareta: " .. tostring(item) end
     return item, data
 end
-
 function Mining:GetDepositState(deposit)
     if not deposit or not deposit.Parent or not deposit:IsA("Model") then
         return nil
@@ -946,13 +1110,10 @@ function Mining:GetDepositState(deposit)
         maxHealth = maxHealth and maxHealth.Value,
     }
 end
-
 function Mining:GetDeposits(oreName)
     local deposits = {}
     local seen = {}
     for tag, info in pairs(self.Global.SharedData.OreDepositInfo) do
-        -- Sem filtro, enumera todos os tipos registrados pelo próprio jogo.
-        -- Não limita a busca à mina ou ao raio do personagem.
         if oreName == nil or tag == oreName or info.OreName == oreName then
             for _, deposit in ipairs(self.CollectionService:GetTagged(tag)) do
                 if not seen[deposit] and deposit:IsDescendantOf(self.Workspace)
@@ -976,10 +1137,6 @@ function Mining:GetDeposits(oreName)
     end
     return deposits
 end
-
--- Fotografia dos depósitos que o servidor já replicou para este cliente.
--- Lê tags e DepositInfo novamente a cada consulta para refletir esgotamento,
--- respawn e streaming, sem conservar modelos antigos como destinos válidos.
 function Mining:GetDepositMap(oreName)
     local map = {}
     local character = self.Global.PlayerCharacter
@@ -1001,10 +1158,7 @@ function Mining:GetDepositMap(oreName)
     end
     return map
 end
-
 function Mining:GetSearchAreas()
-    -- Combina as zonas compartilhadas com o ponto verificado da pedreira,
-    -- que nao aparece nas caixas de bioma/caverna desta versao do mapa.
     local shared = self.Global.SharedFolder
     local areas, seen = {}, {}
     local function add(name, getPosition)
@@ -1035,8 +1189,6 @@ function Mining:GetSearchAreas()
             end)
         end
     end
-    -- O jogo pode remover os modelos de zonas depois da inicializacao.
-    -- SharedUtils conserva suas caixas para consultas de bioma/caverna.
     local utils = self.Global.SharedUtils or {}
     for _, mapName in ipairs({"BiomeZones", "CaveZones", "LandmarkZones"}) do
         local map = utils[mapName]
@@ -1048,9 +1200,6 @@ function Mining:GetSearchAreas()
     end
     return areas
 end
-
--- Apenas peças que realmente sobrepõem a hitbox animada podem receber o golpe.
--- A classe PickaxeItemType exige que a peça seja filha direta do depósito.
 function Mining:_OverlappingOrePart(item, deposit)
     if not item.Hitbox or not item.Hitbox.Parent then return nil end
     local filter = OverlapParams.new()
@@ -1064,9 +1213,6 @@ function Mining:_OverlappingOrePart(item, deposit)
     end
     return nil
 end
-
--- Retorno true significa que o fluxo local registrou contato; a resposta do
--- servidor deve ser confirmada pelo inventário/DepositInfo no controlador.
 function Mining:_RestoreFacing(guard)
     if not guard or guard.closed then return end
     guard.closed = true
@@ -1094,12 +1240,9 @@ function Mining:_RestoreFacing(guard)
         pcall(function()
             guard.gameCamera.CameraCFrame = guard.gameCameraFrame
         end)
-        -- Também libera o controlador após morte/respawn, para não deixar a
-        -- próxima câmera presa ao minério do personagem anterior.
         pcall(function() guard.gameCamera:Enable() end)
     end
 end
-
 function Mining:_PointAtDeposit(guard)
     if guard.closed then return false, "Mira interrompida" end
     local character, root, human = self.Global.PlayerCharacter, guard.root, guard.human
@@ -1114,8 +1257,6 @@ function Mining:_PointAtDeposit(guard)
     end
     local center = guard.target.Position
     local horizontal = Vector3.new(center.X - root.Position.X, 0, center.Z - root.Position.Z)
-    -- A rotação é reaplicada na preparação e durante toda a animação; o motor
-    -- do Humanoid e o movimento do mouse não podem desfazer a direção do golpe.
     character:FaceMouse(false)
     human.AutoRotate = false
     human:Move(Vector3.zero, false)
@@ -1137,7 +1278,6 @@ function Mining:_PointAtDeposit(guard)
     guard.aimPosition = center
     return true
 end
-
 function Mining:MineOnce(deposit, cancelled)
     if self.faceGuard then return false, "Outro golpe ainda está em andamento" end
     local character = self.Global.PlayerCharacter
@@ -1190,7 +1330,6 @@ function Mining:MineOnce(deposit, cancelled)
         guard.connection = self.RunService.PreSimulation:Connect(point)
         guard.renderName = "TWWMinerAim_" .. tostring(guard)
         self.RunService:BindToRenderStep(guard.renderName, Enum.RenderPriority.Last.Value + 1, point)
-        -- Deixa o rig ler a nova direção antes de iniciar um Swing já preparado.
         self.RunService.Heartbeat:Wait()
         return self:_MineOnce(deposit, isCancelled)
     end)
@@ -1293,16 +1432,12 @@ function Mining:_MineOnce(deposit, cancelled)
     if contactResult ~= nil then return contactResult, contactMessage end
     return false, started and "A picareta não tocou o depósito" or "Golpe não iniciado"
 end
-
 function Mining:Stop()
     self.generation = self.generation + 1
     self:_RestoreFacing(self.faceGuard)
     local item = self.activeItem
     self.activeItem = nil
     if not item then return end
-
-    -- StopTrack retoma a corrotina de ReadySwing. Bloqueia a entrada real de
-    -- MeleeItemType:Swing antes de liberá-la, sem alterar NextCanSwing.
     local earlierGuard = self.stopGuards[item]
     local previous = item.DisableSwinging
     if earlierGuard then previous = earlierGuard.previous end
@@ -1321,12 +1456,9 @@ function Mining:Stop()
         end
     end)
 end
-
 return Mining
-
 end)()
 local Flight = (function()
--- Voo baixo: segue o piso, conserva colisoes e recalcula apos correcoes externas.
 local Flight = {}
 Flight.__index = Flight
 local MAX_CAST_DISTANCE = 512
@@ -1337,12 +1469,10 @@ local function isRagdolled(pc)
     local ok, value = pcall(pc.IsRagdolled, pc)
     return ok and value == true
 end
-
 function Flight.create(Global, options)
     return setmetatable({Global = Global, options = options or {}, generation = 0,
         RunService = game:GetService("RunService"), active = nil, trace = {}}, Flight)
 end
-
 function Flight:_Release(resource)
     if not resource or resource.closed then return end
     resource.closed = true
@@ -1356,8 +1486,6 @@ function Flight:_Release(resource)
     end
     for _, object in ipairs(resource.objects) do pcall(function() object:Destroy() end) end
     if human and human.Parent and not isRagdolled(resource.pc) then
-        -- Restaurar apenas o que este voo mudou. GettingUp a cada chegada
-        -- interrompia animacoes e podia derrubar o personagem durante a mineracao.
         if resource.changedAutoRotate and human.AutoRotate == false then
             pcall(function() human.AutoRotate = resource.autoRotate end)
         end
@@ -1371,12 +1499,10 @@ function Flight:_Release(resource)
     end
     if self.active == resource then self.active = nil end
 end
-
 function Flight:Stop()
     self.generation = self.generation + 1
     self:_Release(self.active)
 end
-
 function Flight:_Parameters(model, root)
     local parameters = RaycastParams.new()
     parameters.FilterType = Enum.RaycastFilterType.Exclude
@@ -1385,13 +1511,11 @@ function Flight:_Parameters(model, root)
     parameters.CollisionGroup = root.CollisionGroup
     return parameters
 end
-
 function Flight:_Blockcast(origin, size, delta, parameters)
     local distance = delta.Magnitude
     if distance < 0.001 then return nil end
     local direction = delta.Unit
     local traveled = 0
-    -- O limite do motor vale para cada cast, mesmo quando o destino esta longe.
     while traveled < distance do
         local length = math.min(MAX_CAST_DISTANCE, distance - traveled)
         local hit = workspace:Blockcast(CFrame.new(origin + direction * traveled),
@@ -1401,13 +1525,11 @@ function Flight:_Blockcast(origin, size, delta, parameters)
     end
     return nil
 end
-
 function Flight:ClearSegment(origin, destination, model, root)
     local hit = self:_Blockcast(origin, self:_BodySize(model, root), destination - origin,
         self:_Parameters(model, root))
     return hit == nil, hit
 end
-
 function Flight:_RootHeight(model, root)
     if self.options.rootHeight then return math.clamp(self.options.rootHeight, 2, 6) end
     local pc = self.Global.PlayerCharacter
@@ -1420,17 +1542,13 @@ function Flight:_RootHeight(model, root)
     end
     return math.clamp(height, 2, 6)
 end
-
 function Flight:_Clearance()
     return math.clamp(tonumber(self.options.flightClearance) or 1.5, 0.75, 1.5)
 end
-
 function Flight:_BodySize(model, root)
-    -- Inclui pernas e cabeca: verificar so o RootPart deixava os pes prenderem.
     return Vector3.new(math.max(root.Size.X, 2.3),
         math.max(self:_RootHeight(model, root) * 2, 5), math.max(root.Size.Z, 2))
 end
-
 function Flight:_GroundAt(position, floorY, parameters, initial)
     local stepUp = 2.5
     local drop = initial and 256 or 6
@@ -1439,7 +1557,6 @@ function Flight:_GroundAt(position, floorY, parameters, initial)
     if not hit or hit.Normal.Y < 0.55 or hit.Material == Enum.Material.Water then return nil end
     return hit.Position
 end
-
 function Flight:_GroundRoute(origin, requested, model, root, cancelled)
     local height, clearance = self:_RootHeight(model, root), self:_Clearance()
     local parameters = self:_Parameters(model, root)
@@ -1448,8 +1565,6 @@ function Flight:_GroundRoute(origin, requested, model, root, cancelled)
     local previous = Vector3.new(origin.X, ground.Y + height + clearance, origin.Z)
     local points, sourceIndices = {}, {}
     if (previous - origin).Magnitude > 0.15 then
-        -- Se a execucao anterior deixou o personagem alto, desce primeiro no
-        -- mesmo lugar. Nenhuma travessia lateral e feita nessa altura.
         if not self:ClearSegment(origin, previous, model, root) then
             return nil, "Obstáculo ao ajustar a altura do voo"
         end
@@ -1481,7 +1596,6 @@ function Flight:_GroundRoute(origin, requested, model, root, cancelled)
             previous, ground = point, floor
             if count % 64 == 0 then task.wait() end
         end
-        -- Nao confundir o piso de outro andar com o destino solicitado.
         if math.abs(previous.Y - clearance - target.Y) > clearance + 3 then
             return nil, "Destino em outro nível; procurando acesso pelo caminho"
         end
@@ -1489,14 +1603,11 @@ function Flight:_GroundRoute(origin, requested, model, root, cancelled)
     if #points == 0 then points[1], sourceIndices[1] = previous, #requested end
     return points, nil, sourceIndices
 end
-
 function Flight:PlanRoute(origin, destination, model, root)
     return self:_GroundRoute(origin, {destination}, model, root)
 end
-
 function Flight:MoveTo(destination, cancelled, onTrace, tolerance)
     self:Stop()
-    -- Uma tentativa recusada antes de decolar nao herda a recuperacao anterior.
     self.trace = {stage = "planning"}
     local generation = self.generation
     local pc = self.Global.PlayerCharacter
@@ -1538,7 +1649,6 @@ function Flight:MoveTo(destination, cancelled, onTrace, tolerance)
         destination.Z - root.Position.Z).Magnitude < 0.1
         and math.abs(destination.Y - root.Position.Y) > 2
     self.active = resource
-    -- Token de posse: um cleanup antigo nao remove a marca de um voo novo.
     self.options.flightActive = resource
     local function create(className, properties)
         local object = Instance.new(className)
@@ -1687,8 +1797,6 @@ function Flight:MoveTo(destination, cancelled, onTrace, tolerance)
                             return
                         end
                     end
-                    -- Antecipa a subida e so desce depois de passar pela borda.
-                    -- Assim os pes conservam folga sobre rampas e pequenos degraus.
                     local heightError = math.max(floor.Y, floorAhead.Y) + rootHeight + clearance - actual.Y
                     delta = Vector3.new(delta.X, heightError, delta.Z)
                     if resource.groundClearance < 0.65 or heightError > 1 then
@@ -1700,7 +1808,6 @@ function Flight:MoveTo(destination, cancelled, onTrace, tolerance)
                     return
                 end
                 local remaining = (destination - actual).Magnitude + remainingAfter[resource.waypointIndex]
-                -- A chegada precisa de espaco para frear mesmo com o slider em 80.
                 local commandSpeed = math.min(speed, delta.Magnitude / dt,
                     math.sqrt(2 * 100 * math.max(remaining - tolerance * 0.5, 0.01)))
                 local turn = nextTurn[resource.waypointIndex]
@@ -1709,8 +1816,6 @@ function Flight:MoveTo(destination, cancelled, onTrace, tolerance)
                     commandSpeed = math.min(commandSpeed, math.sqrt(12 * 12 + 2 * 100 * untilTurn))
                 end
                 local command = delta.Unit * commandSpeed
-                -- A sustentacao tem forca finita. Uma descida a 80 nao parava
-                -- antes do piso; limita a componente vertical sem saltar posicao.
                 local verticalLimit = command.Y < 0 and 6 or 10
                 if math.abs(command.Y) > verticalLimit then
                     command = command * (verticalLimit / math.abs(command.Y))
@@ -1769,7 +1874,6 @@ return Flight
 
 end)()
 local Ladder = (function()
--- Conecta acessos de escadas reais usando o movimento normal do Humanoid.
 local Ladder = {}
 Ladder.__index = Ladder
 local UP = Vector3.new(0, 1, 0)
@@ -1792,7 +1896,8 @@ end
 function Ladder.create(Global, options)
     return setmetatable({Global = Global, options = options or {},
         Workspace = game:GetService("Workspace"), RunService = game:GetService("RunService"),
-        generation = 0, active = nil, trace = {stage = "idle"}, parts = {}, scanned = -math.huge}, Ladder)
+        generation = 0, active = nil, trace = {stage = "idle"}, parts = {}, scanned = -math.huge,
+        failedParts = setmetatable({}, {__mode="k"})}, Ladder)
 end
 
 function Ladder:_RootHeight(pc)
@@ -1809,7 +1914,9 @@ end
 function Ladder:_Parameters(pc, part)
     local parameters = RaycastParams.new()
     parameters.FilterType = Enum.RaycastFilterType.Exclude
-    parameters.FilterDescendantsInstances = {pc.Character, part}
+    local excluded = {pc.Character, part}
+    if pc.ClimbPart then excluded[#excluded+1] = pc.ClimbPart end
+    parameters.FilterDescendantsInstances = excluded
     parameters.RespectCanCollide = true
     parameters.CollisionGroup = pc.RootPart.CollisionGroup
     parameters.IgnoreWater = false
@@ -1817,8 +1924,6 @@ function Ladder:_Parameters(pc, part)
 end
 
 function Ladder:_Access(position, level, height, parameters)
-    -- Comecar perto da extremidade evita confundir o fundo da mina com o
-    -- patamar superior. A escada nunca serve como seu proprio piso.
     local hit = self.Workspace:Raycast(Vector3.new(position.X, level + 6, position.Z),
         -UP * 14, parameters)
     if not hit or hit.Normal.Y < 0.55 or hit.Material == Enum.Material.Water
@@ -1828,7 +1933,6 @@ end
 
 function Ladder:_Geometry(part)
     local frame, size = part.CFrame, part.Size
-    -- CustomLadder cilindrica usa X como eixo longitudinal no mapa.
     if part:IsA("Part") and part.Shape == Enum.PartType.Cylinder then
         frame = frame * CFrame.Angles(0, 0, frame.XVector.Y > 0 and -math.pi / 2 or math.pi / 2)
         size = Vector3.new(size.Y, size.X, size.Z)
@@ -1860,7 +1964,8 @@ function Ladder:GetLinks(origin, maxDistance)
     end
     local height, links = self:_RootHeight(pc), {}
     for _, part in ipairs(self.parts) do
-        if part.Parent and part ~= pc.ClimbPart and (part.Position - origin).Magnitude
+        if part.Parent and part ~= pc.ClimbPart and (self.failedParts[part] or 0) <= os.clock()
+            and (part.Position - origin).Magnitude
             <= maxDistance + part.Size.Magnitude / 2 then
             local frame, size, baseNormal, depth = self:_Geometry(part)
             if frame then
@@ -1873,8 +1978,6 @@ function Ladder:GetLinks(origin, maxDistance)
                     local lower = self:_Access(lowerEnd + normal * offset,
                         lowerEnd.Y, height, parameters)
                     if lower then
-                        -- No alto, o patamar pode ficar do mesmo lado ou atras
-                        -- da escada. Ambos sao acessos reais, nunca pontos no ar.
                         for _, exitSign in ipairs({1, -1}) do
                             local upper = self:_Access(upperEnd + normal * offset * exitSign,
                                 upperEnd.Y, height, parameters)
@@ -1897,7 +2000,6 @@ function Ladder:GetLinks(origin, maxDistance)
     end)
     return links
 end
-
 function Ladder:_Release(resource)
     if not resource or resource.closed then return end
     resource.closed = true
@@ -1906,7 +2008,7 @@ function Ladder:_Release(resource)
     if human and human.Parent then
         pcall(function() human:Move(Vector3.zero, false) end)
         if resource.jumped then pcall(function() human.Jump = resource.jump end) end
-        if resource.changedAutoRotate and human.AutoRotate == false and not ragdolled(pc) then
+        if resource.changedAutoRotate and human.AutoRotate == (resource.appliedAutoRotate == true) and not ragdolled(pc) then
             pcall(function() human.AutoRotate = resource.autoRotate end)
         end
     end
@@ -1917,15 +2019,99 @@ function Ladder:_Release(resource)
     if self.options.ladderActive == resource then self.options.ladderActive = nil end
     if self.active == resource then self.active = nil end
 end
-
 function Ladder:Stop()
     self.generation = self.generation + 1
     self:_Release(self.active)
 end
-
 function Ladder:Destroy()
     self:Stop()
     self.parts = {}
+end
+function Ladder:_EscapeTarget(pc, part)
+    local frame, _, normal = self:_Geometry(part)
+    if not frame then return nil end
+    local root, height = pc.RootPart, self:_RootHeight(pc)
+    local fromCenter = flat(root.Position - frame.Position)
+    if fromCenter:Dot(normal) < 0 then normal = -normal end
+    local side = Vector3.new(-normal.Z, 0, normal.X)
+    local parameters = self:_Parameters(pc, part)
+    local best, bestCost
+    for _, direction in ipairs({normal, (normal+side).Unit, (normal-side).Unit, side, -side}) do
+        for _, distance in ipairs({2.75, 4}) do
+            local point = root.Position + direction * distance
+            local floor = self:_Access(point, root.Position.Y-height, height, parameters)
+            if floor and floor.Y <= root.Position.Y+2 and floor.Y >= root.Position.Y-5 then
+                local delta = floor-root.Position
+                local hit = self.Workspace:Blockcast(CFrame.new(root.Position), Vector3.new(1.5,2,1.5),
+                    flat(delta), parameters)
+                if not hit then
+                    local cost = delta.Magnitude + math.max(0, root.Position.Y-floor.Y)
+                    if not bestCost or cost < bestCost then best,bestCost=floor,cost end
+                end
+            end
+        end
+    end
+    return best
+end
+function Ladder:Escape(cancelled, onTrace)
+    self:Stop()
+    local pc = self.Global.PlayerCharacter
+    if not alive(pc) or ragdolled(pc) then return false,"Character unavailable for ladder recovery" end
+    local current = pc.CurrentLadder
+    local part = current and current.Part
+    if not part or not part.Parent then return false,"Ladder contact changed; replanning the route" end
+    self.failedParts[part] = os.clock() + (self.options.ladderFailureCooldown or 60)
+    local target = self:_EscapeTarget(pc, part)
+    if not target then
+        local frame,size,normal,depth=self:_Geometry(part)
+        if frame then
+            if flat(pc.RootPart.Position-frame.Position):Dot(normal)<0 then normal=-normal end
+            local lowerEnd,upperEnd=frame.Position-frame.UpVector*size.Y/2,frame.Position+frame.UpVector*size.Y/2
+            local parameters=self:_Parameters(pc,part)
+            local height=self:_RootHeight(pc)
+            local lower=self:_Access(lowerEnd+normal*(depth/2+1.4),lowerEnd.Y,height,parameters)
+            local upper=self:_Access(upperEnd+normal*(depth/2+1.4),upperEnd.Y,height,parameters)
+            if lower and upper then
+                return self:Traverse({part=part,lower=lower,upper=upper,normal=normal},false,cancelled,onTrace)
+            end
+        end
+        return false,"No supported landing beside the ladder; replanning the route"
+    end
+    local human, root, generation = pc.Human,pc.RootPart,self.generation
+    local resource={pc=pc,human=human,root=root,model=pc.Character,jump=human.Jump,
+        autoRotate=human.AutoRotate,facingMouse=pc.FacingMouse,closed=false}
+    self.active,self.options.ladderActive=resource,resource
+    local started=os.clock()
+    local function run()
+        if type(pc.FaceMouse)=="function" then pc:FaceMouse(false);resource.changedFacingMouse=true end
+        human.AutoRotate=true;resource.changedAutoRotate=true;resource.appliedAutoRotate=true
+        resource.inputName="TWWMinerLadderEscape_"..tostring(resource)
+        self.RunService:BindToRenderStep(resource.inputName,Enum.RenderPriority.Input.Value+20,function()
+            if not resource.closed and self.Global.PlayerCharacter==pc and alive(pc) then
+                local delta=flat(target-root.Position)
+                human:Move(delta.Magnitude>.4 and delta.Unit or Vector3.zero,false)
+            end
+        end)
+        local jumpAt=-math.huge
+        while os.clock()-started<3 do
+            if generation~=self.generation or resource.closed or (cancelled and cancelled()) then return false,"Cancelado" end
+            if self.Global.PlayerCharacter~=pc or not alive(pc) or ragdolled(pc) then return false,"Personagem mudou durante a escada" end
+            local now=os.clock()
+            local climbing=pc.Climbing or pc.CurrentLadderMagnetized
+            if not climbing and human.FloorMaterial~=Enum.Material.Air
+                and flat(root.Position-target).Magnitude<1.25 then return true,"Left the ladder; replanning the route" end
+            if climbing and now-jumpAt>1.3 then
+                human.Jump=true;resource.jumped=true;jumpAt=now
+            elseif resource.jumped and now-jumpAt>.2 then human.Jump=false end
+            if onTrace then onTrace({stage="ladder_escape",message="Leaving an unintended ladder; replanning the route"}) end
+            task.wait(.05)
+        end
+        return false,"Ladder recovery timed out; looking for another route"
+    end
+    local ok,success,message=pcall(run)
+    self:_Release(resource)
+    if not ok then return false,"Ladder recovery failed: "..tostring(success) end
+    return success,message
 end
 
 function Ladder:Traverse(link, upwards, cancelled, onTrace)
@@ -1944,7 +2130,9 @@ function Ladder:Traverse(link, upwards, cancelled, onTrace)
     local normal = flat(link.normal).Unit
     local goal = upwards and link.upper or link.lower
     local initial = upwards and link.lower or link.upper
-    if (root.Position - initial).Magnitude > (self.options.ladderApproachDistance or 8) then
+    local attached=pc.CurrentLadder and pc.CurrentLadder.Part==link.part
+        and (pc.Climbing or pc.CurrentLadderMagnetized)
+    if not attached and (root.Position - initial).Magnitude > (self.options.ladderApproachDistance or 8) then
         return false, "Aproxime-se do acesso da escada antes de subir"
     end
     local frame, size, _, depth = self:_Geometry(link.part)
@@ -1952,7 +2140,7 @@ function Ladder:Traverse(link, upwards, cancelled, onTrace)
     local resource = {pc = pc, human = human, root = root, model = model,
         facingMouse = pc.FacingMouse, autoRotate = human.AutoRotate, jump = human.Jump,
         started = os.clock(), progressAt = os.clock(), progress = root.Position,
-        phase = "mounting", command = Vector3.zero, closed = false}
+        phase = attached and "climbing" or "mounting", command = Vector3.zero, closed = false}
     self.active, self.options.ladderActive = resource, resource
     local function isCancelled()
         if generation ~= self.generation or resource.closed then return true end
@@ -1983,6 +2171,7 @@ function Ladder:Traverse(link, upwards, cancelled, onTrace)
         end)
         local deadline = resource.started + math.clamp(size.Y / 3 + 12, 14, 120)
         local mountedAt, dismountAt, emittedAt = nil, nil, -math.huge
+        local bestHeight, heightAt = root.Position.Y, os.clock()
         local mount = frame.Position + normal * (depth / 2 + 1.25)
         while true do
             if isCancelled() then return false, "Cancelado" end
@@ -2014,7 +2203,7 @@ function Ladder:Traverse(link, upwards, cancelled, onTrace)
                 end
             elseif resource.phase == "climbing" then
                 resource.command = upwards and -normal or normal
-                if upwards and root.Position.Y >= goal.Y - 2 then
+                if upwards and root.Position.Y >= goal.Y - self:_RootHeight(pc) - 0.25 then
                     resource.phase, dismountAt = "leaving", now
                     human.Jump, resource.jumped = true, true
                 elseif not upwards and root.Position.Y <= goal.Y + 1.2 then
@@ -2023,11 +2212,17 @@ function Ladder:Traverse(link, upwards, cancelled, onTrace)
             end
             if resource.phase == "leaving" then
                 local toward = flat(goal - root.Position)
-                resource.command = toward.Magnitude > 0.5 and toward.Unit or normal
+                -- Stop pushing into the ladder once the landing is reached.
+                resource.command = toward.Magnitude > 0.5 and toward.Unit or Vector3.zero
                 faceDirection = toward.Magnitude > 0.5 and toward.Unit or -normal
                 if resource.jumped and now - dismountAt > 0.15 then human.Jump = false end
                 if now - dismountAt > 5 then return false, "Saída da escada bloqueada; recalculando acesso" end
             end
+            if resource.phase == "climbing" then
+                local gained = upwards and root.Position.Y-bestHeight or bestHeight-root.Position.Y
+                if gained >= .35 then bestHeight,heightAt=root.Position.Y,now
+                elseif now-heightAt>3 then return false,"Escada bloqueada; procurando outro acesso" end
+            else bestHeight,heightAt=root.Position.Y,now end
             if (root.Position - resource.progress).Magnitude >= 0.2 then
                 resource.progress, resource.progressAt = root.Position, now
             elseif now - resource.progressAt > 4 then
@@ -2044,6 +2239,9 @@ function Ladder:Traverse(link, upwards, cancelled, onTrace)
     self:_Release(resource)
     if not ok then success, reason = false, "Falha na escada: " .. tostring(success) end
     if not success then
+        if reason ~= "Cancelado" and generation == self.generation and alive(pc) then
+            self.failedParts[link.part] = os.clock() + (self.options.ladderFailureCooldown or 60)
+        end
         self.trace = {stage = "ladder_failed", message = reason, upwards = upwards == true}
     end
     return success, reason
@@ -3280,6 +3478,10 @@ function Navigation:_ClearDrive(resource)
     if human and human.Parent then
         pcall(function() human:Move(Vector3.zero, false) end)
     end
+    if resource.restoreWalkingFacing then
+        pcall(resource.restoreWalkingFacing)
+        resource.restoreWalkingFacing = nil
+    end
     if resource.jumpHuman then
         pcall(function() resource.jumpHuman.Jump = resource.jumpBefore end)
         resource.jumpHuman, resource.jumpUntil, resource.jumpBefore = nil, nil, nil
@@ -3426,6 +3628,20 @@ function Navigation:_Waypoint(resource, position, action, generation, cancelled,
         waypointIndex = resource.waypointIndex}, generation)
 
     self:_ClearDrive(resource)
+    -- Face the route while walking. Looking back at the last ore can make the
+    -- game's custom ladder detection grab a ladder beside a wooden walkway.
+    local pc = self.Global.PlayerCharacter
+    if not resource.restoreDoorFacing then
+        local facing, autoRotate = pc.FacingMouse, human.AutoRotate
+        resource.restoreWalkingFacing = function()
+            if self.Global.PlayerCharacter == pc and pc.Character == character and human.Parent then
+                human.AutoRotate = autoRotate
+                if type(pc.FaceMouse) == "function" then pc:FaceMouse(facing) end
+            end
+        end
+        if type(pc.FaceMouse) == "function" then pc:FaceMouse(false) end
+        human.AutoRotate = true
+    end
     if action == Enum.PathWaypointAction.Jump then human.Jump = true end
     -- Preserva WalkToPoint para diagnóstico. O controle do jogo cancela MoveTo;
     -- Move após a entrada mantém a caminhada com a velocidade normal do jogo.
@@ -3469,6 +3685,16 @@ function Navigation:_Waypoint(resource, position, action, generation, cancelled,
         end
         if resource.blocked then
             reason = "Caminho bloqueado"
+            break
+        end
+        if not self.options.ladderActive and self.ladder and self.ladder.Escape
+            and (pc.Climbing or pc.CurrentLadderMagnetized) then
+            self:_ClearDrive(resource)
+            self:_Trace("ladder_escape", {message = "Leaving an unintended ladder; replanning the route"}, generation)
+            local escaped, escapeError = self.ladder:Escape(function()
+                return self:_Cancelled(generation, cancelled)
+            end, function(data) self:_Trace(data.stage, {message=data.message}, generation) end)
+            reason = escaped and "Left the ladder; replanning the route" or escapeError
             break
         end
         if reached() then
@@ -4409,7 +4635,7 @@ end
 
 function Adapter:_IsSellableOre(item)
     local info = item and self.Global.SharedData.PlayerItems[item.Type]
-    return info ~= nil and info.Type == "Ore" and info.IsLoot and not info.EquipmentType
+    return info ~= nil and (info.Type == "Ore" or info.Type == "Gem") and info.IsLoot and not info.EquipmentType
         and self.Global.SharedUtils.CanSellItem(item)
 end
 
@@ -4653,17 +4879,33 @@ return Sales
 
 end)()
 local Pickup = (function()
--- Coleta somente GUIs PickupItem dentro de Mining.DroppedOre.
+-- Collect mining drops and the five verified gemstone item types.
 -- Mantém o timer original de 0,5 s e a validação de ações do jogo.
 local Pickup = {}
 Pickup.__index = Pickup
+local GEM_TYPES={Diamond=true,Emerald=true,Amethyst=true,Sapphire=true,Ruby=true}
+local ITEM_ATTRIBUTES={"ItemType","Item","ItemName","GemType","Type","PrimaryDescription"}
+
+local function normalized(value)
+    return type(value)=="string" and value:lower():gsub("<.->",""):gsub("^pick%s*up%s+",""):gsub("[^%w]","")or nil
+end
 
 function Pickup.create(Global)
-    return setmetatable({
+    local self=setmetatable({
         Global = Global,
         CollectionService = game:GetService("CollectionService"),
         generation = 0,
+        gemNames = {},
     }, Pickup)
+    for name in pairs(GEM_TYPES)do
+        local info=Global.SharedData and Global.SharedData.PlayerItems[name]
+        if info and info.Type=="Gem" then
+            self.gemNames[normalized(name)]=name
+            self.gemNames[normalized(name.."Gem")]=name
+            if type(info.Display)=="string" then self.gemNames[normalized(info.Display)]=name end
+        end
+    end
+    return self
 end
 
 function Pickup:_Folder()
@@ -4672,42 +4914,77 @@ function Pickup:_Folder()
     return mining and mining:FindFirstChild("DroppedOre")
 end
 
-function Pickup:_IsOreGui(gui)
-    local folder = self:_Folder()
-    local valid = folder and gui and gui.Parent and gui.Name == "PickupItem"
+function Pickup:_GemType(gui)
+    local function scan(object)
+        -- Inspect the drop, its attachment and its model, never world folders.
+        for _=1,4 do
+            if not object or object==workspace or object:IsA("Folder") then break end
+            local name=self.gemNames[normalized(object.Name)]
+            if name then return name end
+            for _,key in ipairs(ITEM_ATTRIBUTES)do
+                name=self.gemNames[normalized(object:GetAttribute(key))]
+                if name then return name end
+                local value=object:FindFirstChild(key)
+                if value and value:IsA("StringValue")then
+                    name=self.gemNames[normalized(value.Value)]
+                    if name then return name end
+                end
+            end
+            object=object.Parent
+        end
+    end
+    return scan(gui)or scan(gui.Adornee)
+end
+
+function Pickup:GetDropInfo(gui)
+    local valid = gui and gui.Parent and gui.Name == "PickupItem"
         and gui:IsA("BillboardGui") and gui:HasTag("ObjectActionGroup")
-        and gui:IsDescendantOf(folder) or false
-    if not valid then return false end
+        and gui:IsDescendantOf(workspace) or false
+    if not valid then return nil end
     local groupOwner = gui:GetAttribute("GroupOwner")
     local primaryOwner = gui:GetAttribute("PrimaryOwner")
-    if groupOwner ~= nil and groupOwner ~= self.Global.LocalPlayerName then return false end
-    if primaryOwner ~= nil and primaryOwner ~= self.Global.LocalPlayerName then return false end
-    return true
+    if groupOwner ~= nil and groupOwner ~= self.Global.LocalPlayerName then return nil end
+    if primaryOwner ~= nil and primaryOwner ~= self.Global.LocalPlayerName then return nil end
+    local gem=self:_GemType(gui)
+    local folder=self:_Folder()
+    if not gem and not(folder and gui:IsDescendantOf(folder))then return nil end
+    return {isGem=gem~=nil,itemType=gem,name=gem or "ore"}
+end
+
+function Pickup:_IsOreGui(gui)
+    return self:GetDropInfo(gui)~=nil
 end
 
 function Pickup:_Position(gui)
-    local part = gui and gui.Parent
+    local part = gui and (gui.Adornee or gui.Parent)
     if part and part:IsA("Attachment") then return part.WorldPosition end
     if part and part:IsA("BasePart") then return part.Position end
+    if part and part:IsA("Model") then return part:GetPivot().Position end
     return nil
 end
 
-function Pickup:GetDropsNear(position, radius)
-    local results = {}
-    if not position or not self:_Folder() then return results end
+function Pickup:GetPosition(gui)
+    return self:_Position(gui)
+end
+
+function Pickup:GetDropsNear(position, radius, gemsOnly)
+    local results,entries = {},{}
+    if not position then return results end
     radius = radius or 20
     for _, gui in ipairs(self.CollectionService:GetTagged("ObjectActionGroup")) do
-        if self:_IsOreGui(gui) then
+        local info=self:GetDropInfo(gui)
+        if info and(not gemsOnly or info.isGem)then
             local dropPosition = self:_Position(gui)
             if dropPosition and (dropPosition - position).Magnitude <= radius then
-                table.insert(results, gui)
+                entries[#entries+1]={gui=gui,gem=info.isGem,distance=(dropPosition-position).Magnitude}
             end
         end
     end
-    table.sort(results, function(a, b)
-        return (self:_Position(a) - position).Magnitude
-            < (self:_Position(b) - position).Magnitude
+    table.sort(entries, function(a, b)
+        if a.gem~=b.gem then return a.gem end
+        return a.distance<b.distance
     end)
+    for _,entry in ipairs(entries)do results[#results+1]=entry.gui end
     return results
 end
 
@@ -4726,11 +5003,13 @@ function Pickup:_Action(gui)
     return nil
 end
 
-function Pickup:_InventoryQuantity()
+function Pickup:_InventoryQuantity(itemType)
     local inventory = self.Global.PlayerData:GetContainer("Inventory")
     local quantity = 0
     for _, item in pairs(inventory and inventory.Items or {}) do
-        quantity = quantity + (tonumber(item.StackSize) or 1)
+        if not itemType or item.Type==itemType then
+            quantity = quantity + (tonumber(item.StackSize) or 1)
+        end
     end
     return quantity
 end
@@ -4746,7 +5025,8 @@ end
 
 function Pickup:_Collect(gui, cancelled)
     local generation = self.generation
-    if not self:_IsOreGui(gui) then
+    local dropInfo=self:GetDropInfo(gui)
+    if not dropInfo then
         return false, "Coleta ignorada: objeto fora da pasta de minérios"
     end
     local inventory = self.Global.PlayerData:GetContainer("Inventory")
@@ -4759,7 +5039,7 @@ function Pickup:_Collect(gui, cancelled)
     if #inventory.Items >= inventory.Size then
         return false, "Inventário cheio"
     end
-    local beforeQuantity = self:_InventoryQuantity()
+    local beforeQuantity = self:_InventoryQuantity(dropInfo.itemType)
     local deadline = os.clock() + 2
     local action = nil
     repeat
@@ -4808,7 +5088,7 @@ function Pickup:_Collect(gui, cancelled)
     deadline = os.clock() + 1.5
     repeat
         if self:_Cancelled(generation, cancelled) then return false, "Cancelado" end
-        if self:_InventoryQuantity() > beforeQuantity then
+        if self:_InventoryQuantity(dropInfo.itemType) > beforeQuantity then
             return true, "Minério recebido no inventário"
         end
         task.wait(0.05)
@@ -4838,17 +5118,19 @@ function Pickup:_AimCamera(gui)
         active = false
         if connection then connection:Disconnect() end
         local current = self.Global.PlayerCharacter
-        if current.Character == character and current.Human and current.Human.Health > 0
+        if current and current.Character == character and current.Human and current.Human.Health > 0
             and workspace.CurrentCamera == camera then
             camera.CFrame, camera.Focus, camera.CameraType = oldFrame, oldFocus, oldType
             gameCamera.CameraCFrame = oldGameFrame
-            pcall(function() gameCamera:Enable() end)
         end
+        pcall(function() gameCamera:Enable() end)
         if self.releaseCamera == release then self.releaseCamera = nil end
     end
     self.releaseCamera = release
     local function point()
         if active and workspace.CurrentCamera == camera then
+            local currentPosition=self:_Position(gui)
+            if currentPosition then position=currentPosition;aim=CFrame.lookAt(oldFrame.Position,position)end
             camera.CameraType = Enum.CameraType.Scriptable
             camera.CFrame = aim
             camera.Focus = CFrame.new(position)
@@ -5086,7 +5368,7 @@ return Recovery
 end)()
 local launch = (function()
 -- Controlador: procura deposito, caminha, minera, coleta e vende ao encher.
-return function(UI, Mining, Navigation, Sales, Pickup, Flight, Recovery, RoutePlanner, Ladder, TerrainPath, Streaming, Passages, English)
+return function(UI, Mining, Navigation, Sales, Pickup, Flight, Recovery, RoutePlanner, Ladder, TerrainPath, Streaming, Passages, English, Reports)
     local ORE_CHOICES={"Limestone","Copper","Coal"}
     local ORE_LABELS={Limestone="Limestone",Copper="Copper",Coal="Coal"}
     local ORE_WEIGHTS={Limestone=2,Copper=1,Coal=1}
@@ -5127,6 +5409,7 @@ return function(UI, Mining, Navigation, Sales, Pickup, Flight, Recovery, RoutePl
     local vendorFailures = setmetatable({}, {__mode = "k"})
     local vendorFailureOrigin
     local lastMinePrefetch = -math.huge
+    local pendingGems = {}
 
     local function refreshOreMap()
         if type(mining.GetDepositMap) ~= "function" then return nil end
@@ -5211,6 +5494,8 @@ return function(UI, Mining, Navigation, Sales, Pickup, Flight, Recovery, RoutePl
             maxDistance = CONFIG.maxDistance,
             loadedDeposits = state.loadedDeposits,
             loadedOreCounts = table.clone(state.loadedOreCounts),
+            gemPickupEnabled=pickup and type(pickup.GetDropInfo)=="function"or false,
+            pendingGemDrops=#pendingGems,
             saleAim=sales.aimTrace and table.clone(sales.aimTrace)or nil,
             navigation = table.clone(navigation.trace)}
     end
@@ -5327,25 +5612,89 @@ return function(UI, Mining, Navigation, Sales, Pickup, Flight, Recovery, RoutePl
         return false, lastError
     end
 
-    local function collectNearby(position, cancelled)
-        if not pickup or full() then return true end
-        local drops = pickup:GetDropsNear(position, 14)
+    local function rememberGems(position)
+        if not pickup or type(pickup.GetDropInfo)~="function" or type(pickup.GetPosition)~="function" then return end
+        for _,drop in ipairs(pickup:GetDropsNear(position,32,true))do
+            local info=pickup:GetDropInfo(drop)
+            local point=pickup:GetPosition(drop)
+            if info and info.isGem and point then
+                local known=false
+                for _,entry in ipairs(pendingGems)do
+                    if entry.gui==drop or entry.itemType==info.itemType and(entry.position-point).Magnitude<2 then known=true;break end
+                end
+                if not known then
+                    if #pendingGems>=16 then table.remove(pendingGems,1)end
+                    pendingGems[#pendingGems+1]={gui=drop,position=point,itemType=info.itemType,expires=os.clock()+120}
+                end
+            end
+        end
+    end
+
+    local function forgetGem(drop)
+        local info=pickup.GetDropInfo and pickup:GetDropInfo(drop)
+        local point=pickup.GetPosition and pickup:GetPosition(drop)
+        for index=#pendingGems,1,-1 do
+            local entry=pendingGems[index]
+            if entry.gui==drop or info and point and entry.itemType==info.itemType
+                and(entry.position-point).Magnitude<2 then table.remove(pendingGems,index)end
+        end
+    end
+
+    local function collectNearby(position, cancelled, gemsOnly)
+        if not pickup then return true end
+        rememberGems(position)
+        if full() then return true end
+        local drops = pickup:GetDropsNear(position, 32, gemsOnly)
         for _, drop in ipairs(drops) do
             if cancelled() then return false, "Cancelado" end
             if full() then return true end
-            status("Coletando minério")
+            local info=pickup.GetDropInfo and pickup:GetDropInfo(drop)
+            status(info and info.isGem and "Collecting "..info.name or "Coletando minério")
             local moved, travelError = navigation:ApproachVendor(drop, cancelled)
             if navigation.haltReason then return false, navigation.haltReason end
             if navigation.recoveryReason then return false, travelError end
             if moved and not cancelled() then
                 local collected, message = pickup:Collect(drop, cancelled)
-                if not collected and message ~= "Objeto removido" then
+                if collected then forgetGem(drop)
+                elseif message ~= "Objeto removido" then
                     status(message)
                 end
             end
         end
         updateInventory()
         return true
+    end
+
+    local function collectPendingGems(cancelled)
+        local pc=Global.PlayerCharacter
+        local root=pc and pc.RootPart
+        if not pickup or not root or full()then return true end
+        local nearest,best
+        for index=#pendingGems,1,-1 do
+            local entry=pendingGems[index]
+            if entry.expires<=os.clock()then table.remove(pendingGems,index)
+            else
+                local distance=(entry.position-root.Position).Magnitude
+                if distance<=CONFIG.maxDistance and(not best or distance<best)then nearest,best=index,distance end
+            end
+        end
+        if not nearest then return true end
+        local entry=table.remove(pendingGems,nearest)
+        if cancelled()then return false,"Cancelado"end
+        status("Collecting "..entry.itemType)
+        if best>24 then
+            local moved,message
+            if entry.gui.Parent and pickup:GetDropInfo(entry.gui)then
+                moved,message=navigation:ApproachVendor(entry.gui,cancelled)
+            elseif type(navigation.MoveTo)=="function"then
+                moved,message=navigation:MoveTo(entry.position+Vector3.new(0,3,0),cancelled)
+            end
+            if navigation.haltReason then return false,navigation.haltReason end
+            if navigation.recoveryReason then return false,message end
+            if cancelled()then return false,"Cancelado"end
+            if not moved then return true end
+        end
+        return collectNearby(entry.position,cancelled,true)
     end
 
     local function worker(generation)
@@ -5360,6 +5709,11 @@ return function(UI, Mining, Navigation, Sales, Pickup, Flight, Recovery, RoutePl
             if navigation.haltReason then return false, navigation.haltReason end
             if not characterReady() then return false, "Personagem indisponível; entre no mapa e reinicie" end
             updateInventory()
+            rememberGems(Global.PlayerCharacter.RootPart.Position)
+            if not full()then
+                local collected,collectError=collectPendingGems(cancelled)
+                if not collected then return false,collectError end
+            end
             local map = refreshOreMap()
             local visibleSelected = {}
             for _, entry in ipairs(map or {}) do visibleSelected[entry.name] = true end
@@ -5436,11 +5790,13 @@ return function(UI, Mining, Navigation, Sales, Pickup, Flight, Recovery, RoutePl
                         if not item then return false, equipError end
                         local deadline = os.clock() + 150
                         local failures = 0
+                        local dropOrigin=target.PrimaryPart and target.PrimaryPart.Position or root.Position
                         while not cancelled() and not full() and os.clock() < deadline do
                             local before = mining:GetDepositState(target)
                             if not before or before.remaining <= 0 then break end
                             status("Minerando " .. selected .. " | " .. before.remaining .. " restantes")
                             local look = before.primaryPart.Position
+                            dropOrigin=look
                             local unitsBefore = sales:CountSellable()
                             local contact, mineError = mining:MineOnce(target, cancelled)
                             if cancelled() then break end
@@ -5455,7 +5811,8 @@ return function(UI, Mining, Navigation, Sales, Pickup, Flight, Recovery, RoutePl
                                 status(contact and "Golpes sem confirmação do servidor" or mineError)
                                 break
                             end
-                            local drops = pickup and pickup:GetDropsNear(look, 14) or {}
+                            rememberGems(look)
+                            local drops = pickup and pickup:GetDropsNear(look, 32) or {}
                             if #drops > 0 then
                                 local collected, collectError = collectNearby(look, cancelled)
                                 if not collected then return false, collectError end
@@ -5468,9 +5825,12 @@ return function(UI, Mining, Navigation, Sales, Pickup, Flight, Recovery, RoutePl
                             end
                             updateInventory()
                         end
-                        if not cancelled() and target.Parent and not full() then
-                            local collected, collectError = collectNearby(target:GetPivot().Position, cancelled)
-                            if not collected then return false, collectError end
+                        if not cancelled() then
+                            task.wait(.35)
+                            if not cancelled()then
+                                local collected, collectError = collectNearby(dropOrigin, cancelled)
+                                if not collected then return false, collectError end
+                            end
                         end
                     end
                 end
@@ -5483,7 +5843,6 @@ return function(UI, Mining, Navigation, Sales, Pickup, Flight, Recovery, RoutePl
         end
         return true
     end
-
     local function supervise(generation)
         local function cancelled()
             return state.closed or not state.running or generation ~= state.generation
@@ -5496,8 +5855,6 @@ return function(UI, Mining, Navigation, Sales, Pickup, Flight, Recovery, RoutePl
             until os.clock() >= deadline
             return not cancelled()
         end
-        -- Mantem a picareta escolhida na mao tambem durante viagens e esperas.
-        -- O adaptador serializa as trocas e aguarda o fim das picaretadas.
         state.equipWatchActive = true
         local equipToken = {}
         state.equipWatchToken = equipToken
@@ -5559,7 +5916,6 @@ return function(UI, Mining, Navigation, Sales, Pickup, Flight, Recovery, RoutePl
         end
         releaseActions()
     end
-
     function api:Start()
         if state.closed or state.running then return false end
         if state.workerActive then status("Aguarde a parada anterior terminar"); return false end
@@ -5592,7 +5948,6 @@ return function(UI, Mining, Navigation, Sales, Pickup, Flight, Recovery, RoutePl
         end)
         return true
     end
-
     function api:Destroy()
         if state.closed then return end
         self:Stop()
@@ -5602,7 +5957,6 @@ return function(UI, Mining, Navigation, Sales, Pickup, Flight, Recovery, RoutePl
         if ui then ui:Destroy() end
         if environment.TWWMiner == self then environment.TWWMiner = nil end
     end
-
     local function refresh()
         local ores = {}
         for _,name in ipairs(ORE_CHOICES)do
@@ -5610,11 +5964,28 @@ return function(UI, Mining, Navigation, Sales, Pickup, Flight, Recovery, RoutePl
         end
         if ui then ui:SetOres(ores) end
     end
-
+    local reports=Reports and Reports.create(function()
+        local snapshot=api:GetState()
+        local pc=Global.PlayerCharacter
+        local root=pc and pc.RootPart
+        snapshot.navigation.message=snapshot.navigation.message and translate(snapshot.navigation.message)
+        return {placeId=game.PlaceId,status=snapshot.status,selectedOres=snapshot.selectedOres,
+            flightSpeed=snapshot.flightSpeed,navigation=snapshot.navigation,
+            pendingGemDrops=snapshot.pendingGemDrops,
+            recovering=snapshot.recovering,recoveryCount=snapshot.recoveryCount,
+            position=root and tostring(root.Position),
+            climbing=pc and pc.Climbing,magnetized=pc and pc.CurrentLadderMagnetized,
+            ladder=pc and pc.CurrentLadder and pc.CurrentLadder.Part and pc.CurrentLadder.Part:GetFullName()}
+    end)
     ui = UI.create({
         oreLabels=ORE_LABELS,
         oreWeights=ORE_WEIGHTS,
         translateStatus=translate,
+        reportEndpoint=Reports and Reports.ENDPOINT or "",
+        reportContact=Reports and Reports.CONTACT_URL or "",
+        onReportCooldown=function() return reports:Remaining() end,
+        onSendReport=function(text) return reports:Send(text) end,
+        onReportContact=function() return reports:Contact() end,
         flightSpeed = CONFIG.flightSpeed,
         onFlightSpeed = function(value) api:SetFlightSpeed(value) end,
         onToggle = function(enabled)
@@ -5641,12 +6012,9 @@ return function(UI, Mining, Navigation, Sales, Pickup, Flight, Recovery, RoutePl
     environment.TWWMiner = api
     return api
 end
-
 end)()
-return launch(UI, Mining, Navigation, Sales, Pickup, Flight, Recovery, RoutePlanner, Ladder, TerrainPath, Streaming, Passages, English)
+return launch(UI, Mining, Navigation, Sales, Pickup, Flight, Recovery, RoutePlanner, Ladder, TerrainPath, Streaming, Passages, English, Reports)
 end
-
-
 local Players = game:GetService("Players")
 local HttpService = game:GetService("HttpService")
 local player = Players.LocalPlayer
@@ -5660,8 +6028,6 @@ gui.ResetOnSpawn = false
 gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 gui.DisplayOrder = 40
 gui.Parent = parent
-
--- GameSense-inspired: square geometry, dense charcoal panels and red accents.
 local C = {
     background = Color3.fromRGB(14, 14, 14),
     panel = Color3.fromRGB(23, 23, 23),
@@ -5731,13 +6097,10 @@ local status = make("TextLabel", {Name = "Status", Text = "Get a key, then paste
 }, statusPanel)
 local footer = text("TextLabel", "Made by: z1xl", UDim2.fromOffset(19, 235), UDim2.fromOffset(352, 12), 10, C.muted)
 footer.TextXAlignment = Enum.TextXAlignment.Left
-
--- Drag from header, without changing the original autofarm UI.
 local UIS = game:GetService("UserInputService")
 local dragStart, windowStart, dragging, dragTouch
 local dragArea = make("Frame", {Name = "DragArea", Position = UDim2.fromOffset(12, 13),
     Size = UDim2.fromOffset(356, 33), BackgroundTransparency = 1, Active = true}, frame)
--- The transparent header overlay is behind no functional buttons.
 local headerText = make("TextLabel", {Text = "TWW AUTOMINER", Position = UDim2.fromOffset(7, 5),
     Size = UDim2.fromOffset(235, 23), BackgroundTransparency = 1,
     Font = Enum.Font.Code, TextSize = 17, TextColor3 = C.text,
@@ -5777,7 +6140,6 @@ get.Activated:Connect(function()
         status.Text="Open: "..WORKINK_LINK
     end
 end)
--- Local 12-hour license. This is convenience, not tamper-proof DRM.
 local LICENSE_SECONDS = 12 * 60 * 60
 local LICENSE_FILE = "tww_autominer_license_" .. tostring(player.UserId) .. ".json"
 local function licenseValid()
@@ -5844,8 +6206,6 @@ verify.Activated:Connect(function()
             status.Text="Verification failed: network/API error."
             return
         end
-        -- Fail closed: only keys issued for THIS Work.ink link are accepted.
-        -- Confirm the real API response schema before using in production.
         if type(result)=="table" and result.valid==true
             and type(result.info)=="table"
             and tostring(result.info.linkId or "")==EXPECTED_LINK_ID
@@ -5856,7 +6216,7 @@ verify.Activated:Connect(function()
             status.Text = saved and "Key accepted! 12-hour license saved." or "Key accepted! Local save unavailable."
             unlock()
         else
-            status.Text="Invalid key or link ID not confirmed by API."
+            status.Text="Invalid key"
         end
     end)
 end)
