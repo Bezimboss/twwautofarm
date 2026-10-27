@@ -247,136 +247,6 @@ end
 return English
 
 end)()
-local Reports = (function()
--- Only a click on SEND REPORT sends the user's message and listed diagnostics.
-local Reports = {}
-Reports.__index = Reports
-Reports.COOLDOWN_SECONDS = 12 * 60 * 60
-
--- A webhook in a distributed client script is visible to its recipients.
--- A public report API can be used instead to keep the webhook on a server.
-Reports.CONTACT_URL = ""
-Reports.ENDPOINT = "https://discord.com/api/webhooks/1563722040911986768/Cq6ce8QXHEKlN4fjA9sXvM55S_0EWyxfOtGT3RVlhUJiXo6sbljUODb8nuCTsNrqXhe9"
-
-function Reports.create(diagnostics)
-    local player=game:GetService("Players").LocalPlayer
-    local userId=player and player.UserId or 0
-    local environment=(getgenv and getgenv())or _G
-    if type(environment.TWWReportCooldowns)~="table" then environment.TWWReportCooldowns={} end
-    local self=setmetatable({diagnostics=diagnostics,userId=userId,
-        cooldowns=environment.TWWReportCooldowns,cooldownUntil=0,
-        cooldownFile="tww-report-cooldown-"..tostring(userId)..".json",
-        HttpService=game:GetService("HttpService")},Reports)
-    if type(readfile)=="function" then
-        local ok,data=pcall(function()return self.HttpService:JSONDecode(readfile(self.cooldownFile))end)
-        if ok and type(data)=="table" and data.userId==userId
-            and type(data.sentAt)=="number" and type(data.nextAllowedAt)=="number"
-            and data.nextAllowedAt-data.sentAt==Reports.COOLDOWN_SECONDS then
-            self.cooldownUntil=data.nextAllowedAt
-        end
-    end
-    return self
-end
-
-function Reports:Remaining()
-    return math.max(0,math.ceil(math.max(self.cooldownUntil,self.cooldowns[self.userId]or 0)-os.time()))
-end
-
-function Reports:_RecordSuccess()
-    local now=os.time()
-    self.cooldownUntil=now+Reports.COOLDOWN_SECONDS
-    self.cooldowns[self.userId]=self.cooldownUntil
-    if type(writefile)=="function" then
-        pcall(function()
-            writefile(self.cooldownFile,self.HttpService:JSONEncode({userId=self.userId,
-                sentAt=now,nextAllowedAt=self.cooldownUntil}))
-        end)
-    end
-end
-
-function Reports:Build(description)
-    description=tostring(description or ""):match("^%s*(.-)%s*$")
-    if #description<10 then return nil,"Describe the problem in at least 10 characters." end
-    if #description>2500 then return nil,"Keep the description under 2,500 characters." end
-    local ok,diagnostics=pcall(self.diagnostics)
-    if not ok then diagnostics={status="Diagnostics unavailable"} end
-    local report={product="Tww autominer",version="beta-ladder-recovery-2",
-        createdAt=os.date("!%Y-%m-%dT%H:%M:%SZ"),description=description,diagnostics=diagnostics}
-    local encoded,json=pcall(self.HttpService.JSONEncode,self.HttpService,report)
-    if not encoded then return nil,"Could not prepare the report." end
-    return {data=report,json=json}
-end
-
-local function clip(value,limit)
-    local text=tostring(value or "Unavailable")
-    if #text<=limit then return text end
-    local finish=limit-3
-    while finish>0 and string.byte(text,finish+1)>=128 and string.byte(text,finish+1)<192 do finish=finish-1 end
-    return string.sub(text,1,finish).."..."
-end
-
-function Reports:_Delivery(report)
-    local url=Reports.ENDPOINT
-    local discord=url:match("^https://discord%.com/api/webhooks/%d+/")
-        or url:match("^https://discord%.com/api/v%d+/webhooks/%d+/")
-    if not discord then return url,report.json,false end
-    local diagnostics=report.data.diagnostics
-    local ores=type(diagnostics.selectedOres)=="table" and table.concat(diagnostics.selectedOres,", ") or "Unavailable"
-    local route=self.HttpService:JSONEncode(diagnostics.navigation or {})
-    local payload={username="Tww autominer reports",allowed_mentions={parse={}},embeds={{
-        title="Tww autominer | Bug report",description=report.data.description,color=14563139,
-        timestamp=report.data.createdAt,footer={text="Beta | made by: z1xl"},fields={
-            {name="Status",value=clip(diagnostics.status,1000),inline=false},
-            {name="Position",value=clip(diagnostics.position,128),inline=true},
-            {name="Selected ores",value=ores~="" and clip(ores,128) or "None",inline=true},
-            {name="Route diagnostics",value=clip(route,1000),inline=false},
-        },
-    }}}
-    local replaced,count=url:gsub("([?&])wait=[^&]*","%1wait=true")
-    url=count>0 and replaced or url..(url:find("?",1,true) and "&" or "?").."wait=true"
-    return url,self.HttpService:JSONEncode(payload),true
-end
-
-function Reports:Send(description)
-    if self.sending then return false,"A report is already being sent." end
-    local remaining=self:Remaining()
-    if remaining>0 then return false,string.format("Report cooldown: %02dh %02dm %02ds remaining.",
-        math.floor(remaining/3600),math.floor(remaining%3600/60),remaining%60) end
-    if Reports.ENDPOINT=="" then return false,"Delivery is not configured. Contact z1xl." end
-    local report,message=self:Build(description)
-    if not report then return false,message end
-    local send=request or http_request or (syn and syn.request)
-    if type(send)~="function" then return false,"HTTP requests are unavailable in this executor." end
-    local prepared,url,body,discord=pcall(self._Delivery,self,report)
-    if not prepared then return false,"Could not prepare the Discord message. Please try again." end
-    self.sending=true
-    local ok,response=pcall(send,{Url=url,Method="POST",
-        Headers={["Content-Type"]="application/json"},Body=body})
-    self.sending=false
-    if not ok or type(response)~="table" or not tonumber(response.StatusCode)
-        or tonumber(response.StatusCode)<200 or tonumber(response.StatusCode)>=300 then
-        return false,"Delivery failed. Please try again."
-    end
-    if discord then
-        local decoded,message=pcall(self.HttpService.JSONDecode,self.HttpService,response.Body or "")
-        if not decoded or type(message)~="table" or type(message.id)~="string" then
-            return false,"Discord did not confirm delivery. Please try again."
-        end
-    end
-    self:_RecordSuccess()
-    return true,"Report sent to z1xl. You can send another report in 12 hours."
-end
-
-function Reports:Contact()
-    if Reports.CONTACT_URL=="" then return false,"The author has not configured a contact link yet." end
-    local copy=setclipboard or toclipboard
-    if type(copy)~="function" or not pcall(copy,Reports.CONTACT_URL) then return false,"Could not copy the contact link." end
-    return true,"Contact link copied. Open it in your browser and paste your report."
-end
-
-return Reports
-
-end)()
 local UI = (function()
 -- Interface local. Nenhuma chamada de mineração, venda ou rede é feita aqui.
 local UI = {}
@@ -487,7 +357,7 @@ function UI.create(options)
 
     local dragHandle = create("Frame", {
         Name = "DragHandle",
-        Size = UDim2.new(1, -48, 0, 40),
+        Size = UDim2.new(1, -48, 0, 61),
         BackgroundTransparency = 1,
         Active = true,
     }, window)
@@ -521,58 +391,6 @@ function UI.create(options)
         BackgroundTransparency = 1,
         BorderSizePixel = 0,
     }, window)
-
-    local function tabButton(name,text,x)
-        local button=create("TextButton",{Name=name,Text=text,Position=UDim2.new(0,x,0,43),
-            Size=UDim2.new(0,220,0,20),Font=Enum.Font.Code,TextSize=11,
-            TextColor3=colors.text,BackgroundColor3=colors.row,BorderSizePixel=0},window)
-        outline(button)
-        return button
-    end
-    local mainTab=tabButton("MainTab","AUTOMINER",14)
-    local reportTab=tabButton("ReportTab","REPORT A BUG",246)
-    local reportPage=create("Frame",{Name="ReportPage",Size=UDim2.new(1,0,1,0),
-        BackgroundTransparency=1,BorderSizePixel=0,Visible=false},window)
-    label("ReportHeading","REPORT A BUG",UDim2.new(0,22,0,80),UDim2.new(1,-44,0,20),14,colors.text,reportPage)
-    label("ReportHint","Describe what happened and where you were.",UDim2.new(0,22,0,108),
-        UDim2.new(1,-44,0,16),11,colors.muted,reportPage)
-    local reportText=create("TextBox",{Name="ReportDescription",Text="",PlaceholderText="What went wrong?",
-        MultiLine=true,ClearTextOnFocus=false,TextWrapped=true,TextXAlignment=Enum.TextXAlignment.Left,
-        TextYAlignment=Enum.TextYAlignment.Top,Font=Enum.Font.Code,TextSize=12,
-        TextColor3=colors.text,PlaceholderColor3=colors.muted,BackgroundColor3=colors.panel,
-        BorderSizePixel=0,Position=UDim2.new(0,14,0,136),Size=UDim2.new(1,-28,0,161)},reportPage)
-    outline(reportText)
-    create("UIPadding",{PaddingTop=UDim.new(0,8),PaddingBottom=UDim.new(0,8),
-        PaddingLeft=UDim.new(0,8),PaddingRight=UDim.new(0,8)},reportText)
-    label("ReportDiagnosticsHint","Includes status, position and route diagnostics.",UDim2.new(0,22,0,307),
-        UDim2.new(1,-44,0,16),10,colors.muted,reportPage)
-    local function reportButton(name,text,x,y,width)
-        local button=create("TextButton",{Name=name,Text=text,Position=UDim2.new(0,x,0,y),
-            Size=UDim2.new(0,width,0,28),Font=Enum.Font.Code,TextSize=11,TextColor3=colors.text,
-            BackgroundColor3=colors.row,BorderSizePixel=0},reportPage)
-        outline(button)
-        return button
-    end
-    local reportCooldown=label("ReportCooldown","One report every 12 hours.",UDim2.new(0,22,0,325),
-        UDim2.new(1,-44,0,12),10,colors.muted,reportPage)
-    local sendReport=reportButton("SendReport","SEND REPORT",14,340,452)
-    local contactReport=reportButton("ReportContact","CONTACT Z1XL",14,379,452)
-    local canSend=type(options.reportEndpoint)=="string" and options.reportEndpoint~=""
-    local canContact=type(options.reportContact)=="string" and options.reportContact~=""
-    sendReport.Active=canSend;sendReport.AutoButtonColor=canSend
-    sendReport.TextColor3=canSend and colors.text or colors.muted
-    sendReport.BackgroundColor3=canSend and colors.accent or colors.row
-    contactReport.Active=canContact;contactReport.AutoButtonColor=canContact
-    contactReport.TextColor3=canContact and colors.text or colors.muted
-    contactReport.Visible=canContact
-    local reportStatus=label("ReportStatus",canSend and "Reports are sent only when you press SEND REPORT."
-        or "Delivery is not configured. Contact z1xl.",
-        UDim2.new(0,22,0,418),UDim2.new(1,-44,0,32),11,colors.muted,reportPage)
-    reportStatus.TextWrapped=true;reportStatus.TextYAlignment=Enum.TextYAlignment.Top
-    if not canContact then
-        reportStatus.Position=UDim2.new(0,22,0,381)
-        reportStatus.Size=UDim2.new(1,-44,0,65)
-    end
 
     local inventory = label("Inventory", "Inventory: waiting for data",
         UDim2.new(0, 26, 0, 79), UDim2.new(1, -52, 0, 18), 12, colors.muted)
@@ -677,58 +495,6 @@ function UI.create(options)
     betaBadge.TextXAlignment=Enum.TextXAlignment.Right
 
     local instance = {}
-    local reportBusy=false
-    local reportRemaining=0
-    local function updateReportCooldown()
-        if destroyed then return end
-        if type(options.onReportCooldown)=="function" then
-            local ok,value=pcall(options.onReportCooldown)
-            if ok and type(value)=="number" and value==value then reportRemaining=math.max(0,math.ceil(value)) end
-        end
-        local enabled=canSend and reportRemaining==0 and not reportBusy
-        sendReport.Active=enabled;sendReport.AutoButtonColor=enabled
-        sendReport.BackgroundColor3=enabled and colors.accent or colors.row
-        sendReport.TextColor3=enabled and colors.text or colors.muted
-        reportCooldown.Text=reportRemaining>0 and string.format("Next report in %02dh %02dm %02ds",
-            math.floor(reportRemaining/3600),math.floor(reportRemaining%3600/60),reportRemaining%60)
-            or "One report every 12 hours."
-    end
-    local function showTab(report)
-        if destroyed then return end
-        sliderDragging=false;sliderInput=nil;dragging=false;dragInput=nil
-        mainPage.Visible=not report;reportPage.Visible=report
-        mainTab.TextColor3=not report and colors.accent or colors.muted
-        reportTab.TextColor3=report and colors.accent or colors.muted
-        mainTab.BackgroundColor3=not report and colors.selected or colors.row
-        reportTab.BackgroundColor3=report and colors.selected or colors.row
-    end
-    connect(mainTab.Activated,function()showTab(false)end)
-    connect(reportTab.Activated,function()showTab(true)end)
-    local function submitReport(callback)
-        if destroyed or reportBusy then return end
-        updateReportCooldown()
-        if reportRemaining>0 then return end
-        if type(callback)~="function" then reportStatus.Text="Reporting is unavailable.";return end
-        reportBusy=true
-        updateReportCooldown()
-        reportStatus.Text="Preparing report..."
-        local description=reportText.Text
-        task.spawn(function()
-            local ok,success,message=pcall(callback,description)
-            reportBusy=false
-            if destroyed then return end
-            updateReportCooldown()
-            reportStatus.Text=ok and tostring(message or (success and "Done." or "Report failed.")) or "Report failed. Please try again."
-            reportStatus.TextColor3=ok and success and colors.muted or colors.accent
-        end)
-    end
-    connect(sendReport.Activated,function()if canSend then submitReport(options.onSendReport)end end)
-    connect(contactReport.Activated,function()if canContact then submitReport(options.onReportContact)end end)
-    showTab(false)
-    task.spawn(function()
-        while not destroyed do updateReportCooldown();task.wait(1)end
-    end)
-
     local function invoke(callback, ...)
         if type(callback) ~= "function" then
             return
@@ -3634,6 +3400,7 @@ function Navigation:_Trace(stage, values, generation)
     elseif stage == "unstuck_jump" then message = "Pulando para liberar o caminho"
     elseif stage == "door_crossing" then message = "Passando pela porta"
     elseif stage == "wooden_walkway" then message = "Seguindo a passagem de madeira"
+    elseif stage == "stepping_down" then message = "Stepping down to continue the route"
     elseif stage and stage:match("^ladder_") then message = trace.message end
     if message and self.options.onNavigationStatus and
         (stage ~= self.lastStatusStage or os.clock() - (self.lastStatusAt or 0) > 0.5) then
@@ -3829,9 +3596,15 @@ end
 
 function Navigation:_Waypoint(resource, position, action, generation, cancelled, tolerance)
     if self:_Cancelled(generation, cancelled) then return false, "Cancelado" end
+    resource.dropAttempted=false
     local character, root, human = self:_Character()
     if not root then return false, "Personagem indisponível" end
     local function reached()
+        if resource.strictLanding then
+            local delta=root.Position-position
+            return horizontal(delta).Magnitude<=tolerance and math.abs(delta.Y)<=1
+                and human.FloorMaterial~=Enum.Material.Air
+        end
         if self:_AtApproach()then return true end
         if self:_Near(root, position, tolerance, nil, resource.walkOnly)then return true end
         -- Em descidas, a malha pode colocar o ponto no piso abaixo da borda.
@@ -3900,7 +3673,7 @@ function Navigation:_Waypoint(resource, position, action, generation, cancelled,
             return
         end
         human:Move(moving and delta.Unit or Vector3.zero, false)
-        self:_UpdateSprint(resource, moving)
+        self:_UpdateSprint(resource, moving and not resource.steppingDown)
         self:_UpdateJump(resource)
     end)
 
@@ -3948,6 +3721,15 @@ function Navigation:_Waypoint(resource, position, action, generation, cancelled,
         if os.clock() - resource.motionAt >= 1.25 then
             local displacement = horizontal(root.Position - resource.motionAnchor).Magnitude
             if displacement < 1.4 then
+                if not resource.steppingDown and not resource.dropAttempted then
+                    resource.dropAttempted=true
+                    local attempted,stepped,stepError=self:_TrySmallDrop(resource.walkExitTarget or position,
+                        cancelled,generation)
+                    if attempted then
+                        self:_ClearDrive(resource)
+                        return false,stepped and "Stepped down; replanning the route"or stepError
+                    end
+                end
                 if self:_RequestJump(resource, generation, cancelled) then
                     deadline = math.min(deadline + 0.7, walkingStarted + timeout + 2)
                 end
@@ -3966,6 +3748,63 @@ function Navigation:_Waypoint(resource, position, action, generation, cancelled,
     self:_Trace(success and "waypoint_reached" or "waypoint_failed",
         {message = success and "Ponto alcançado" or reason}, generation)
     return success, reason
+end
+
+function Navigation:_TrySmallDrop(destination,cancelled,generation)
+    if self:_Cancelled(generation,cancelled)then return false end
+    local character,root,human=self:_Character()
+    local pc=self.Global.PlayerCharacter
+    if not root or not root.Size or not human.FloorMaterial
+        or not self.options.rootHeight and type(human.HipHeight)~="number"
+        or human.PlatformStand or human.FloorMaterial==Enum.Material.Air or pc.Climbing
+        or self.options.flightActive or self.options.ladderActive then return false end
+    if type(pc.IsRagdolled)=="function"then
+        local ok,fallen=pcall(pc.IsRagdolled,pc)
+        if not ok or fallen then return false end
+    end
+    local direction=horizontal(destination-root.Position)
+    if direction.Magnitude<2 then return false end
+    direction=direction.Unit
+    local height=self:_RootHeight(character,root,human)
+    local maximum=math.clamp(tonumber(self.options.safeStepDown)or 8,1,8)
+    local parameters=RaycastParams.new()
+    parameters.FilterType=Enum.RaycastFilterType.Exclude
+    parameters.FilterDescendantsInstances={character}
+    parameters.RespectCanCollide=true;parameters.CollisionGroup=root.CollisionGroup
+    local landing
+    for _,distance in ipairs({8,6,4})do
+        local sample=root.Position+direction*math.min(distance,horizontal(destination-root.Position).Magnitude)
+        local floor=self:_FloorAt(sample,root.Position.Y-height)
+        local drop=floor and root.Position.Y-floor.Y
+        if drop and drop>1.25 and drop<=maximum then
+            local clear=true
+            -- Check intermediate supports: a floor beyond a pit is insufficient.
+            local length=horizontal(sample-root.Position).Magnitude
+            for step=1,math.ceil(length)do
+                local p=root.Position+direction*math.min(step,length)
+                local support=self:_FloorAt(p,root.Position.Y-height)
+                if not support or root.Position.Y-support.Y>maximum or support.Y>root.Position.Y+1 then clear=false;break end
+            end
+            local across=Vector3.new(sample.X,root.Position.Y,sample.Z)
+            local body=Vector3.new(math.max(root.Size.X,2),math.max(4,height*2-.4),math.max(root.Size.Z,1.5))
+            if clear and self.Workspace:Blockcast(CFrame.new(root.Position),body,across-root.Position,parameters)then clear=false end
+            if clear and self.flight and self.flight.HazardOnSegment
+                and self.flight:HazardOnSegment(root.Position,floor)then clear=false end
+            if clear then landing=floor;break end
+        end
+    end
+    if not landing then return false end
+    if self:_Cancelled(generation,cancelled)then return false end
+    local parent=self.active
+    self:_ClearDrive(parent)
+    local resource={closed=false,walkOnly=true,steppingDown=true,strictLanding=true,allowJump=false}
+    self.active=resource
+    self:_Trace("stepping_down",{landing=tostring(landing)},generation)
+    local ok,arrived,message=pcall(self._Waypoint,self,resource,landing,nil,generation,cancelled,.5)
+    self:_Release(resource)
+    if generation==self.generation and parent and not parent.closed then self.active=parent end
+    if not ok then return true,false,"Small descent failed: "..tostring(arrived)end
+    return true,arrived,message
 end
 
 function Navigation:_Compute(resource, startPosition, destination, generation, cancelled)
@@ -4090,6 +3929,7 @@ function Navigation:_FollowPath(resource, waypoints, position, generation, cance
                         and(self.passages:DoorNear(currentRoot.Position)or self.passages:DoorNear(entry.position))
                     resource.allowJump=not nearby
                     resource.waypointIndex=entry.index
+                    resource.walkExitTarget=position
                     resource.pathIntermediate=entry.index<#waypoints+1
                     ok,message=self:_Waypoint(resource,entry.position,not nearby and entry.action or nil,
                         generation,cancelled,tolerance)
@@ -4129,6 +3969,7 @@ function Navigation:_FollowPath(resource, waypoints, position, generation, cance
             -- Portas e degraus continuam fisicos. O caminho normal do jogo
             -- atravessa a entrada e executa saltos onde o path os solicita.
             resource.waypointIndex = index
+            resource.walkExitTarget=position
             resource.walkOnly = true
             resource.pathIntermediate=index<#waypoints+1
             if crossing then
@@ -4436,6 +4277,9 @@ function Navigation:_MoveTo(position, cancelled, generation, arrivalTolerance)
         self:_Trace("arrived", {message = "Destino alcançado"}, generation)
         return true, "Destino alcançado"
     end
+
+    local attempted,stepped,stepError=self:_TrySmallDrop(position,cancelled,generation)
+    if attempted and not stepped and self:_Cancelled(generation,cancelled)then return false,stepError end
 
     local reason = "Nenhum caminho caminhável até o destino"
     local flightRoute = self.flight and self.flight:PlanRoute(root.Position, position,
@@ -5634,7 +5478,7 @@ return Recovery
 end)()
 local launch = (function()
 -- Controlador: procura deposito, caminha, minera, coleta e vende ao encher.
-return function(UI, Mining, Navigation, Sales, Pickup, Flight, Recovery, RoutePlanner, Ladder, TerrainPath, Streaming, Passages, English, Reports)
+return function(UI, Mining, Navigation, Sales, Pickup, Flight, Recovery, RoutePlanner, Ladder, TerrainPath, Streaming, Passages, English)
     local ORE_CHOICES={"Limestone","Copper","Coal"}
     local ORE_LABELS={Limestone="Limestone",Copper="Copper",Coal="Coal"}
     local ORE_WEIGHTS={Limestone=2,Copper=1,Coal=1}
@@ -6240,29 +6084,10 @@ return function(UI, Mining, Navigation, Sales, Pickup, Flight, Recovery, RoutePl
         if ui then ui:SetOres(ores) end
     end
 
-    local reports=Reports and Reports.create(function()
-        local snapshot=api:GetState()
-        local pc=Global.PlayerCharacter
-        local root=pc and pc.RootPart
-        snapshot.navigation.message=snapshot.navigation.message and translate(snapshot.navigation.message)
-        return {placeId=game.PlaceId,status=snapshot.status,selectedOres=snapshot.selectedOres,
-            flightSpeed=snapshot.flightSpeed,navigation=snapshot.navigation,
-            pendingGemDrops=snapshot.pendingGemDrops,
-            recovering=snapshot.recovering,recoveryCount=snapshot.recoveryCount,
-            position=root and tostring(root.Position),
-            climbing=pc and pc.Climbing,magnetized=pc and pc.CurrentLadderMagnetized,
-            ladder=pc and pc.CurrentLadder and pc.CurrentLadder.Part and pc.CurrentLadder.Part:GetFullName()}
-    end)
-
     ui = UI.create({
         oreLabels=ORE_LABELS,
         oreWeights=ORE_WEIGHTS,
         translateStatus=translate,
-        reportEndpoint=Reports and Reports.ENDPOINT or "",
-        reportContact=Reports and Reports.CONTACT_URL or "",
-        onReportCooldown=function() return reports:Remaining() end,
-        onSendReport=function(text) return reports:Send(text) end,
-        onReportContact=function() return reports:Contact() end,
         flightSpeed = CONFIG.flightSpeed,
         onFlightSpeed = function(value) api:SetFlightSpeed(value) end,
         onToggle = function(enabled)
@@ -6291,7 +6116,7 @@ return function(UI, Mining, Navigation, Sales, Pickup, Flight, Recovery, RoutePl
 end
 
 end)()
-return launch(UI, Mining, Navigation, Sales, Pickup, Flight, Recovery, RoutePlanner, Ladder, TerrainPath, Streaming, Passages, English, Reports)
+return launch(UI, Mining, Navigation, Sales, Pickup, Flight, Recovery, RoutePlanner, Ladder, TerrainPath, Streaming, Passages, English)
 end
 
 
